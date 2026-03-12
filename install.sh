@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # OpenClaw Skill 一鍵安裝腳本
 # 用法：
-#   curl -fsSL https://raw.githubusercontent.com/fishbob/openclaw-gomoku/main/install.sh | SKILL_TOKEN=xxx bash
+#   curl -fsSL https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/install.sh | SKILL_TOKEN=xxx bash
 #   或互動式：curl -fsSL ... | bash  （腳本會提示輸入 token）
 
 set -e
 
 INSTALL_DIR="$HOME/.openclaw-skill"
-SKILL_JS_URL="https://raw.githubusercontent.com/fishbob/openclaw-gomoku/main/dist/skill.js"
+SKILL_JS_URL="https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/dist/skill.js"
 BIN_LINK="/usr/local/bin/openclaw-skill"
 
 # ── 顏色輸出 ─────────────────────────────────────────────────

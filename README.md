@@ -19,7 +19,7 @@ Bot 會回傳含你的個人 token 的安裝指令，複製貼到終端機即可
 ### 方法二：終端機直接安裝
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fishbob/openclaw-gomoku/main/install.sh | SKILL_TOKEN=你的Token bash
+curl -fsSL https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/install.sh | SKILL_TOKEN=你的Token bash
 ```
 
 **如何取得 Token？**
@@ -69,7 +69,7 @@ tail -f ~/.openclaw-skill/skill.log
 ## 更新 Skill
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fishbob/openclaw-gomoku/main/dist/skill.js \
+curl -fsSL https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/dist/skill.js \
   -o ~/.openclaw-skill/skill.js
 ```
 
