@@ -27,6 +27,7 @@ import os
 import json
 import argparse
 import time
+import random as _random
 import threading
 from pathlib import Path
 
@@ -42,6 +43,53 @@ CONFIG_DIR = Path.home() / ".openclaw-gomoku"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 STRATEGIES_DIR = CONFIG_DIR / "strategies"
 STRATEGY_FILE = CONFIG_DIR / "strategy.md"
+STOP_FILE = CONFIG_DIR / "STOP"        # touch to stop after current game
+MAX_GAMES_FILE = CONFIG_DIR / "MAX_GAMES"  # echo N > MAX_GAMES to set game limit dynamically
+
+# ── Avatar — auto-fetch from OpenClaw Telegram bot profile ──────────────────
+# Reads bot token from ~/.openclaw/openclaw.json and fetches the bot's own photo.
+# Override by setting SKILL_AVATAR_URL to a specific URL (leave "" for auto).
+SKILL_AVATAR_URL = ""
+
+def _fetch_openclaw_avatar() -> str:
+    """Auto-fetch this bot's Telegram profile photo URL via OpenClaw config."""
+    try:
+        openclaw_cfg = Path.home() / ".openclaw" / "openclaw.json"
+        if not openclaw_cfg.exists():
+            return ""
+        with open(openclaw_cfg) as f:
+            oc = json.load(f)
+        bot_token = oc.get("channels", {}).get("telegram", {}).get("botToken", "")
+        if not bot_token:
+            return ""
+        # Get bot's own user ID
+        me = requests.get(f"https://api.telegram.org/bot{bot_token}/getMe", timeout=10).json()
+        bot_id = me.get("result", {}).get("id")
+        if not bot_id:
+            return ""
+        # Get profile photos
+        photos = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/getUserProfilePhotos",
+            params={"user_id": bot_id, "limit": 1}, timeout=10,
+        ).json()
+        items = photos.get("result", {}).get("photos", [])
+        if not items:
+            return ""
+        file_id = items[0][-1]["file_id"]  # largest size
+        # Get file path
+        file_info = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/getFile",
+            params={"file_id": file_id}, timeout=10,
+        ).json()
+        file_path = file_info.get("result", {}).get("file_path", "")
+        if not file_path:
+            return ""
+        return f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+    except Exception:
+        return ""
+
+# Resolve avatar once at import time (cached in module-level variable)
+_resolved_avatar: str = ""
 
 COL_LABELS = "ABCDEFGHIJKLMNO"
 
@@ -50,6 +98,9 @@ DEFAULT_CONFIG = {
     "api_base": "https://fishbob-openclaw-api.fly.dev",
     "think_seconds": 10,
     "active_strategy": "",
+    "wins": 0,
+    "losses": 0,
+    "draws": 0,
     "trash": {
         "start": ["準備好了嗎？開始吧！", "讓我們來一場精彩的對決！", "今天我不手軟。"],
         "win": ["再來！", "這才是第一局，繼續！", "感謝對手，下次請更努力！"],
@@ -128,18 +179,101 @@ def render_board(board: list, last_move_pos: dict | None = None) -> str:
         row_label = f"{r + 1:2d} "
         cells = []
         for c in range(15):
-            val = board[r][c] if board and r < len(board) and c < len(board[r]) else 0
+            val = board[r][c] if board and r < len(board) and c < len(board[r]) else None
             if last_move_pos and last_move_pos.get("row") == r and last_move_pos.get("col") == c:
                 cells.append(LAST)
-            elif val == 1:
+            elif val == 'black' or val == 1:
                 cells.append(BLACK)
-            elif val == 2:
+            elif val == 'white' or val == 2:
                 cells.append(WHITE)
             else:
                 cells.append(EMPTY)
         lines.append(row_label + " ".join(cells))
 
     return "\n".join(lines)
+
+
+# ── Board PNG generator ──────────────────────────────────────────────────────
+
+def generate_board_png(board: list, last_move_pos: dict | None = None, game_id: str = "board") -> str | None:
+    """Generate a board PNG using PIL. Returns file path or None if PIL unavailable."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError:
+        return None
+
+    CELL = 40
+    MARGIN = 50
+    GRID = CELL * 14  # 14 gaps for 15 lines
+    IMG_SIZE = MARGIN * 2 + GRID
+
+    bg  = (215, 175, 105)
+    line = (120, 75, 30)
+    star = (90, 50, 15)
+
+    img = Image.new("RGB", (IMG_SIZE, IMG_SIZE), bg)
+    draw = ImageDraw.Draw(img)
+
+    # Grid lines
+    for i in range(15):
+        x = MARGIN + i * CELL
+        y = MARGIN + i * CELL
+        draw.line([(MARGIN, y), (MARGIN + GRID, y)], fill=line, width=1)
+        draw.line([(x, MARGIN), (x, MARGIN + GRID)], fill=line, width=1)
+
+    # Star points
+    for r, c in [(3,3),(3,7),(3,11),(7,3),(7,7),(7,11),(11,3),(11,7),(11,11)]:
+        cx = MARGIN + c * CELL
+        cy = MARGIN + r * CELL
+        draw.ellipse([(cx-4, cy-4), (cx+4, cy+4)], fill=star)
+
+    # Font
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+    except Exception:
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 14)
+        except Exception:
+            font = ImageFont.load_default()
+
+    # Column labels
+    for i, col in enumerate(COL_LABELS):
+        cx = MARGIN + i * CELL
+        draw.text((cx - 5, 8), col, fill=line, font=font)
+        draw.text((cx - 5, IMG_SIZE - 22), col, fill=line, font=font)
+
+    # Row labels
+    for i in range(15):
+        cy = MARGIN + i * CELL
+        label = str(i + 1)
+        draw.text((8, cy - 8), label, fill=line, font=font)
+        draw.text((IMG_SIZE - 26, cy - 8), label, fill=line, font=font)
+
+    # Stones
+    R = CELL // 2 - 3
+    for r in range(15):
+        for c in range(15):
+            val = board[r][c] if board and r < len(board) and c < len(board[r]) else None
+            if not val:
+                continue
+            cx = MARGIN + c * CELL
+            cy = MARGIN + r * CELL
+            is_last = last_move_pos and last_move_pos.get("row") == r and last_move_pos.get("col") == c
+
+            if val in ('black', 1):
+                draw.ellipse([(cx-R, cy-R), (cx+R, cy+R)], fill=(30, 30, 30), outline=(10, 10, 10), width=1)
+                draw.ellipse([(cx-R//3-2, cy-R//2), (cx-R//5, cy-R//5)], fill=(80, 80, 80))
+                if is_last:
+                    draw.ellipse([(cx-5, cy-5), (cx+5, cy+5)], fill=(255, 80, 80))
+            elif val in ('white', 2):
+                draw.ellipse([(cx-R+2, cy-R+2), (cx+R+2, cy+R+2)], fill=(170, 170, 170))
+                draw.ellipse([(cx-R, cy-R), (cx+R, cy+R)], fill=(245, 245, 238), outline=(160, 160, 160), width=1)
+                if is_last:
+                    draw.ellipse([(cx-5, cy-5), (cx+5, cy+5)], fill=(255, 80, 80))
+
+    path = f"/tmp/gomoku-board-{game_id[:8]}.png"
+    img.save(path, "PNG")
+    return path
 
 
 # ── Commands ─────────────────────────────────────────────────────────────────
@@ -168,6 +302,8 @@ def cmd_get_turn(args, cfg):
     moves = game.get("moves", [])
     current_player = game.get("currentPlayer", "")
     player_names = game.get("playerNames", {})
+    player_models = game.get("playerModels", {})
+    is_practice = game.get("isPractice", False)
 
     # Last move
     last_move_pos = None
@@ -179,8 +315,11 @@ def cmd_get_turn(args, cfg):
             last_move_pos = pos
             last_move_coord = pos_to_coord(pos["row"], pos["col"])
 
-    # My color
+    # My color and opponent info
     my_color = current_player  # 'black' or 'white'
+    opponent_color = 'white' if my_color == 'black' else 'black'
+    opponent_name = player_names.get(opponent_color, 'Opponent')
+    opponent_model = player_models.get(opponent_color, '') or ''
 
     # Count moves
     move_count = len(moves)
@@ -188,11 +327,18 @@ def cmd_get_turn(args, cfg):
 
     # Output for AI
     print(f"GAME_ID={game_id}")
+    print(f"GAME_TYPE={'practice' if is_practice else 'league'}")
     print(f"MY_COLOR={my_color}")
     print(f"TURN={turn_number}")
     print(f"LAST_MOVE={last_move_coord if last_move_coord else 'none'}")
     print(f"BLACK={player_names.get('black', 'Black')}")
     print(f"WHITE={player_names.get('white', 'White')}")
+    print(f"OPPONENT={opponent_name}")
+    if opponent_model:
+        print(f"OPPONENT_MODEL={opponent_model}")
+    cfg = load_config()
+    print(f"MY_WINS={cfg.get('wins', 0)}")
+    print(f"MY_LOSSES={cfg.get('losses', 0)}")
     print(f"BOARD=")
     print(render_board(board, last_move_pos))
 
@@ -249,16 +395,24 @@ def cmd_move(args, cfg):
 
 def cmd_heartbeat(args, cfg):
     """Send heartbeat to keep skill_online=true."""
+    global _resolved_avatar
     api = get_api(cfg)
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
 
     ai_model = getattr(args, "ai_model", None) or "gomoku.py"
 
+    # Resolve avatar URL once (manual override > auto-fetch)
+    if not _resolved_avatar:
+        _resolved_avatar = SKILL_AVATAR_URL or _fetch_openclaw_avatar()
+
     try:
+        body = {"ai_model": ai_model}
+        if _resolved_avatar:
+            body["avatar_url"] = _resolved_avatar
         resp = requests.post(
             f"{api}/skill/heartbeat",
-            json={"ai_model": ai_model},
+            json=body,
             headers=headers,
             timeout=10,
         )
@@ -371,6 +525,85 @@ def cmd_save_token(args, cfg):
     print(f"Token saved to {CONFIG_FILE}")
 
 
+# ── Practice game ────────────────────────────────────────────────────────────
+
+def cmd_practice(args, cfg):
+    """Start a practice game against system AI (is_practice=true, no ELO)."""
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    headers["Content-Type"] = "application/json"
+    try:
+        resp = requests.post(f"{api}/skill/practice", headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    game_id = data.get("gameId", "")
+    print(f"PRACTICE_STARTED=ok")
+    print(f"GAME_ID={game_id}")
+    print(f"COLOR=black")
+    print(f"對手：系統 AI（L3）。練習局不計入聯盟積分。")
+    print(f"使用 get-turn 查看棋盤，play 開始自動下棋。")
+
+
+# ── Board image ───────────────────────────────────────────────────────────────
+
+def cmd_board_image(args, cfg):
+    """Generate board PNG. Prints BOARD_IMAGE=<path> or PIL_NOT_INSTALLED."""
+    api = get_api(cfg)
+    game_id = args.game_id
+
+    try:
+        resp = requests.get(f"{api}/games/{game_id}", timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    board = data.get("board_state") or data.get("board") or []
+    if isinstance(board, str):
+        import json as _json
+        board = _json.loads(board)
+    moves = data.get("moves") or []
+    if isinstance(moves, str):
+        import json as _json
+        moves = _json.loads(moves)
+
+    last_move_pos = None
+    if moves:
+        lm = moves[-1]
+        pos = lm.get("position") or lm
+        if isinstance(pos, dict) and "row" in pos:
+            last_move_pos = pos
+
+    path = generate_board_png(board, last_move_pos, game_id)
+    if path:
+        print(f"BOARD_IMAGE={path}")
+    else:
+        print("PIL_NOT_INSTALLED")
+        print("(安裝方法：pip3 install Pillow)")
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+def cmd_stats(args, cfg):
+    """Show win/loss/draw statistics."""
+    wins = cfg.get("wins", 0)
+    losses = cfg.get("losses", 0)
+    draws = cfg.get("draws", 0)
+    total = wins + losses + draws
+    rate = f"{wins/total*100:.1f}%" if total else "N/A"
+    print(f"WINS={wins}")
+    print(f"LOSSES={losses}")
+    print(f"DRAWS={draws}")
+    print(f"TOTAL={total}")
+    print(f"WIN_RATE={rate}")
+    print(f"戰績：{wins}勝 {losses}負 {draws}和  勝率={rate}")
+
+
 # ── AI Hint (server fallback) ─────────────────────────────────────────────────
 
 def cmd_ai_hint(args, cfg):
@@ -402,6 +635,217 @@ def cmd_ai_hint(args, cfg):
     print(f"GAME_ID={game_id}")
     # Output in same format as get-turn so AI can directly submit
     print(f"MOVE={coord}")
+
+
+# ── Auto-play loop ───────────────────────────────────────────────────────────
+
+def cmd_play(args, cfg):
+    """Autonomous play loop: poll get-turn, use server AI hint, submit move.
+    With --auto-queue: re-join queue and keep playing after each game ends."""
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    hint_headers = dict(headers)
+    hint_headers["Content-Type"] = "application/json"
+    move_headers = dict(headers)
+    move_headers["Content-Type"] = "application/json"
+
+    poll_interval = getattr(args, "interval", 5) or 5
+    auto_queue = getattr(args, "auto_queue", False)
+    max_games = getattr(args, "games", 0) or 0  # 0 = unlimited
+    no_game_count = 0
+    games_played = 0
+
+    limit_str = f", max_games={max_games}" if max_games else ", unlimited"
+    print(f"[play] Starting autonomous loop (poll every {poll_interval}s, auto_queue={auto_queue}{limit_str}). Ctrl+C to stop.")
+
+    last_game_id = None
+    game_my_color: dict = {}   # game_id → my color (for win/loss tracking)
+    game_is_practice: dict = {}  # game_id → bool
+    no_rejoin = False  # True after STOP detected: finish current game then exit
+
+    def check_dynamic_max() -> int:
+        """Read MAX_GAMES file if present; returns limit or 0 (unlimited)."""
+        try:
+            if MAX_GAMES_FILE.exists():
+                val = int(MAX_GAMES_FILE.read_text().strip())
+                return val
+        except Exception:
+            pass
+        return max_games  # fall back to CLI --games value
+
+    while True:
+        try:
+            # Poll for my turn
+            resp = requests.get(f"{api}/games/skill/my-turn", headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            game = data.get("game")
+
+            if not game:
+                if last_game_id:
+                    games_played += 1
+                    _dmax = check_dynamic_max()
+                    print(f"[play] Game {last_game_id[:8]} ended. (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
+                    last_game_id = None
+                    no_game_count = 0
+                    if auto_queue:
+                        effective_max = check_dynamic_max()
+                        if effective_max and games_played >= effective_max:
+                            if MAX_GAMES_FILE.exists(): MAX_GAMES_FILE.unlink(missing_ok=True)
+                            print(f"[play] 已完成 {games_played} 局，停止。", flush=True)
+                            break
+                        if no_rejoin:
+                            print(f"[play] 已完成所有對局，停止。", flush=True)
+                            break
+                        if STOP_FILE.exists():
+                            STOP_FILE.unlink(missing_ok=True)
+                            no_rejoin = True
+                            print(f"[play] STOP 旗標偵測，離開佇列，完成已配對對局後停止。", flush=True)
+                            try:
+                                requests.delete(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                            except Exception:
+                                pass
+                            break  # NO_GAME already confirmed, safe to stop
+                        print("[play] Auto-queue: rejoining matchmaking...", flush=True)
+                        try:
+                            qr = requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                            qr.raise_for_status()
+                            print("[play] Joined queue. Waiting for match...", flush=True)
+                        except Exception as e:
+                            print(f"[play] Queue error: {e}", file=sys.stderr, flush=True)
+                    else:
+                        break
+                else:
+                    if no_rejoin:
+                        print(f"[play] 已完成所有對局，停止。", flush=True)
+                        break
+                    no_game_count += 1
+                    if no_game_count % 12 == 1:  # Print every minute
+                        print("[play] NO_GAME — waiting for match...", flush=True)
+                time.sleep(poll_interval)
+                continue
+
+            game_id = game["id"]
+            last_game_id = game_id
+            board = game["board"]
+            moves = game.get("moves", [])
+            color = game.get("currentPlayer", "")
+            names = game.get("playerNames", {})
+            models = game.get("playerModels", {})
+            is_practice = game.get("isPractice", False)
+            move_num = len(moves) + 1
+
+            # Track my color and game type on first turn of each game
+            if game_id not in game_my_color:
+                game_my_color[game_id] = color
+                game_is_practice[game_id] = is_practice
+
+            opp_color = 'white' if color == 'black' else 'black'
+            opp_name = names.get(opp_color, 'opponent')
+            opp_model = models.get(opp_color, '') or ''
+            game_type = 'PRACTICE' if is_practice else 'LEAGUE'
+            print(f"[play] {game_type} GAME={game_id[:8]} COLOR={color} TURN={move_num} "
+                  f"vs {opp_name}" + (f" ({opp_model})" if opp_model else ""), flush=True)
+
+            # Get server AI hint
+            hint_resp = requests.get(
+                f"{api}/games/skill/{game_id}/ai-hint",
+                headers=headers,
+                timeout=30,
+            )
+            hint_resp.raise_for_status()
+            hint_data = hint_resp.json()
+            position = hint_data.get("position")
+
+            if not position:
+                print("[play] ERROR: no position from ai-hint, skipping", flush=True)
+                time.sleep(poll_interval)
+                continue
+
+            coord = pos_to_coord(position["row"], position["col"])
+            print(f"[play] → submitting move {coord}", flush=True)
+
+            # Submit move
+            move_resp = requests.post(
+                f"{api}/games/skill/{game_id}/move",
+                json={"position": position},
+                headers=move_headers,
+                timeout=15,
+            )
+            move_resp.raise_for_status()
+            result = move_resp.json()
+
+            ai_moved = result.get("aiMoved")
+            ai_coord = pos_to_coord(ai_moved["row"], ai_moved["col"]) if ai_moved else None
+            if result.get("finished"):
+                gr = result.get("gameResult", {})
+                winner = gr.get("winner", "?")
+                reason = gr.get("reason", "")
+                ai_suffix = f" | opponent auto-moved {ai_coord}" if ai_coord else ""
+                print(f"[play] MOVED={coord}{ai_suffix}", flush=True)
+                games_played += 1
+
+                # Win/loss tracking (skip practice games)
+                my_clr = game_my_color.pop(game_id, color)
+                is_prac = game_is_practice.pop(game_id, False)
+                if not is_prac:
+                    fresh_cfg = load_config()
+                    if winner == my_clr:
+                        fresh_cfg["wins"] = fresh_cfg.get("wins", 0) + 1
+                    elif winner in ("black", "white"):
+                        fresh_cfg["losses"] = fresh_cfg.get("losses", 0) + 1
+                    else:
+                        fresh_cfg["draws"] = fresh_cfg.get("draws", 0) + 1
+                    save_config(fresh_cfg)
+                    cfg = fresh_cfg
+                    w, l, d = cfg.get("wins",0), cfg.get("losses",0), cfg.get("draws",0)
+                    print(f"[play] STATS wins={w} losses={l} draws={d}", flush=True)
+
+                print(f"[play] GAME_OVER winner={winner} reason={reason} (局數 {games_played}/{max_games if max_games else '∞'})", flush=True)
+                last_game_id = None
+                no_game_count = 0
+                if auto_queue:
+                    effective_max = check_dynamic_max()
+                    if effective_max and games_played >= effective_max:
+                        if MAX_GAMES_FILE.exists(): MAX_GAMES_FILE.unlink(missing_ok=True)
+                        print(f"[play] 已完成 {games_played} 局，停止。", flush=True)
+                        break
+                    if STOP_FILE.exists():
+                        STOP_FILE.unlink(missing_ok=True)
+                        no_rejoin = True
+                        print(f"[play] STOP 旗標偵測，離開佇列，繼續 poll 確認無待下對局後停止。", flush=True)
+                        try:
+                            requests.delete(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                        except Exception:
+                            pass
+                        # Don't rejoin — continue polling to finish any already-matched game
+                        time.sleep(poll_interval)
+                        continue
+                    if no_rejoin:
+                        # Already stopping — continue polling to catch any pending game
+                        time.sleep(poll_interval)
+                        continue
+                    print("[play] Auto-queue: rejoining matchmaking...", flush=True)
+                    try:
+                        qr = requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                        qr.raise_for_status()
+                        print("[play] Joined queue. Waiting for next match...", flush=True)
+                    except Exception as e:
+                        print(f"[play] Queue error: {e}", file=sys.stderr, flush=True)
+                    time.sleep(poll_interval)
+                    continue
+                break
+            print(f"[play] MOVED={coord}" + (f" | opponent auto-moved {ai_coord}" if ai_coord else ""), flush=True)
+
+        except requests.exceptions.RequestException as e:
+            print(f"[play] request error: {e}", file=sys.stderr, flush=True)
+        except KeyboardInterrupt:
+            print("\n[play] Stopped by user.")
+            break
+        except Exception as e:
+            print(f"[play] unexpected error: {e}", file=sys.stderr, flush=True)
+
+        time.sleep(poll_interval)
 
 
 # ── Strategy commands ────────────────────────────────────────────────────────
@@ -522,6 +966,13 @@ def cmd_strategy(args, cfg):
 
     if sub == "use":
         name = args.name
+        if name == "random":
+            names = list_strategies()
+            if not names:
+                print("ERROR: 尚無策略可選", file=sys.stderr)
+                sys.exit(1)
+            name = _random.choice(names)
+            print(f"RANDOM_SELECTED={name}")
         ok = activate_strategy(name, cfg)
         if not ok:
             print(f"ERROR: 策略「{name}」不存在", file=sys.stderr)
@@ -583,6 +1034,28 @@ def main():
     sub.add_parser("leave-queue", help="Leave matchmaking queue")
     sub.add_parser("queue-status", help="Check queue status")
 
+    # set-games — dynamically set game limit on running loop
+    p_sg = sub.add_parser("set-games", help="Set game limit on running play loop (0 = unlimited)")
+    p_sg.add_argument("n", type=int, help="Number of games (0 = unlimited)")
+
+    # play (autonomous loop)
+    p_play = sub.add_parser("play", help="Autonomous play loop using server AI")
+    p_play.add_argument("--interval", type=int, default=5, help="Poll interval in seconds (default: 5)")
+    p_play.add_argument("--auto-queue", action="store_true", dest="auto_queue",
+                        help="Re-join queue and keep playing after each game ends")
+    p_play.add_argument("--games", type=int, default=0, metavar="N",
+                        help="Stop after N games (default: 0 = unlimited)")
+
+    # practice
+    sub.add_parser("practice", help="Start a practice game vs system AI (no ELO)")
+
+    # board-image
+    p_bi = sub.add_parser("board-image", help="Generate board PNG image")
+    p_bi.add_argument("--game-id", required=True, help="Game ID")
+
+    # stats
+    sub.add_parser("stats", help="Show win/loss/draw statistics")
+
     # ai-hint
     p_hint = sub.add_parser("ai-hint", help="Get server AI move (fallback)")
     p_hint.add_argument("--game-id", required=True, help="Game ID")
@@ -637,6 +1110,22 @@ def main():
         cmd_leave_queue(args, cfg)
     elif args.command == "queue-status":
         cmd_queue_status(args, cfg)
+    elif args.command == "set-games":
+        n = args.n
+        if n and n > 0:
+            MAX_GAMES_FILE.write_text(str(n))
+            print(f"SET_GAMES={n} (生效於下一局結束後)")
+        else:
+            MAX_GAMES_FILE.unlink(missing_ok=True)
+            print("SET_GAMES=unlimited")
+    elif args.command == "practice":
+        cmd_practice(args, cfg)
+    elif args.command == "board-image":
+        cmd_board_image(args, cfg)
+    elif args.command == "stats":
+        cmd_stats(args, cfg)
+    elif args.command == "play":
+        cmd_play(args, cfg)
     elif args.command == "ai-hint":
         cmd_ai_hint(args, cfg)
     elif args.command == "strategy":
