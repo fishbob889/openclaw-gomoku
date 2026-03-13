@@ -101,6 +101,7 @@ DEFAULT_CONFIG = {
     "wins": 0,
     "losses": 0,
     "draws": 0,
+    "telegram_chat_id": "",   # set via /gomoku telegram-setup
     "trash": {
         "start": ["準備好了嗎？開始吧！", "讓我們來一場精彩的對決！", "今天我不手軟。"],
         "win": ["再來！", "這才是第一局，繼續！", "感謝對手，下次請更努力！"],
@@ -191,6 +192,41 @@ def render_board(board: list, last_move_pos: dict | None = None) -> str:
         lines.append(row_label + " ".join(cells))
 
     return "\n".join(lines)
+
+
+# ── Telegram sender ──────────────────────────────────────────────────────────
+
+def _get_telegram_bot_token() -> str:
+    """Read Telegram bot token from ~/.openclaw/openclaw.json (same as avatar fetch)."""
+    try:
+        openclaw_cfg = Path.home() / ".openclaw" / "openclaw.json"
+        if not openclaw_cfg.exists():
+            return ""
+        with open(openclaw_cfg) as f:
+            oc = json.load(f)
+        return oc.get("channels", {}).get("telegram", {}).get("botToken", "")
+    except Exception:
+        return ""
+
+
+def send_board_to_telegram(png_path: str, chat_id: str, caption: str = "") -> bool:
+    """Send board PNG to Telegram via Bot API. Returns True on success."""
+    bot_token = _get_telegram_bot_token()
+    if not bot_token:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+        with open(png_path, "rb") as f:
+            resp = requests.post(
+                url,
+                data={"chat_id": chat_id, "caption": caption},
+                files={"photo": f},
+                timeout=20,
+            )
+        return resp.ok
+    except Exception as e:
+        print(f"[telegram] send error: {e}", file=sys.stderr)
+        return False
 
 
 # ── Board PNG generator ──────────────────────────────────────────────────────
@@ -551,26 +587,29 @@ def cmd_practice(args, cfg):
 # ── Board image ───────────────────────────────────────────────────────────────
 
 def cmd_board_image(args, cfg):
-    """Generate board PNG. Prints BOARD_IMAGE=<path> or PIL_NOT_INSTALLED."""
+    """Generate board PNG and optionally send to Telegram.
+    Prints BOARD_SENT=telegram, BOARD_IMAGE=<path>, or PIL_NOT_INSTALLED."""
     api = get_api(cfg)
     game_id = args.game_id
+    send_chat = getattr(args, "send_chat", None) or cfg.get("telegram_chat_id", "")
 
     try:
         resp = requests.get(f"{api}/games/{game_id}", timeout=15)
         resp.raise_for_status()
-        data = resp.json()
+        raw = resp.json()
     except requests.exceptions.RequestException as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Unwrap nested "game" key if present
+    data = raw.get("game") or raw
+
     board = data.get("board_state") or data.get("board") or []
     if isinstance(board, str):
-        import json as _json
-        board = _json.loads(board)
+        board = json.loads(board)
     moves = data.get("moves") or []
     if isinstance(moves, str):
-        import json as _json
-        moves = _json.loads(moves)
+        moves = json.loads(moves)
 
     last_move_pos = None
     if moves:
@@ -579,12 +618,90 @@ def cmd_board_image(args, cfg):
         if isinstance(pos, dict) and "row" in pos:
             last_move_pos = pos
 
+    move_count = len(moves)
     path = generate_board_png(board, last_move_pos, game_id)
     if path:
+        if send_chat:
+            caption = f"第 {move_count} 手" if move_count else "開局"
+            ok = send_board_to_telegram(path, send_chat, caption)
+            if ok:
+                print(f"BOARD_SENT=telegram chat_id={send_chat} moves={move_count}")
+                return
+            print(f"BOARD_SEND_FAILED=telegram_error")
         print(f"BOARD_IMAGE={path}")
     else:
         print("PIL_NOT_INSTALLED")
         print("(安裝方法：pip3 install Pillow)")
+
+
+# ── Single AI move (for step-by-step practice auto mode) ─────────────────────
+
+def cmd_ai_move(args, cfg):
+    """Get server AI hint and submit one move. For step-by-step orchestration.
+    Outputs: COORD=, MOVED=, AI_MOVED= (if opponent auto-moved),
+             GAME_OVER=true, WINNER=, REASON= (if finished)."""
+    game_id = args.game_id
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    move_headers = dict(headers)
+    move_headers["Content-Type"] = "application/json"
+
+    try:
+        hint_resp = requests.get(f"{api}/games/skill/{game_id}/ai-hint", headers=headers, timeout=30)
+        hint_resp.raise_for_status()
+        position = hint_resp.json().get("position")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: ai-hint failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not position:
+        print("ERROR: no position from ai-hint")
+        sys.exit(1)
+
+    coord = pos_to_coord(position["row"], position["col"])
+    print(f"COORD={coord}")
+
+    try:
+        move_resp = requests.post(
+            f"{api}/games/skill/{game_id}/move",
+            json={"position": position},
+            headers=move_headers,
+            timeout=15,
+        )
+        move_resp.raise_for_status()
+        result = move_resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: move failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    ai_moved = result.get("aiMoved")
+    ai_coord = pos_to_coord(ai_moved["row"], ai_moved["col"]) if ai_moved else None
+    print(f"MOVED={coord}")
+    if ai_coord:
+        print(f"AI_MOVED={ai_coord}")
+
+    if result.get("finished"):
+        gr = result.get("gameResult", {})
+        print(f"GAME_OVER=true")
+        print(f"WINNER={gr.get('winner', '?')}")
+        print(f"REASON={gr.get('reason', '')}")
+    else:
+        print("GAME_OVER=false")
+
+
+# ── Telegram setup ────────────────────────────────────────────────────────────
+
+def cmd_telegram_setup(args, cfg):
+    """Save Telegram chat_id for automatic board image sending."""
+    cfg["telegram_chat_id"] = str(args.chat_id)
+    save_config(cfg)
+    print(f"TELEGRAM_SETUP=ok chat_id={args.chat_id}")
+    # Verify bot token is available
+    token = _get_telegram_bot_token()
+    if token:
+        print("BOT_TOKEN=found (from ~/.openclaw/openclaw.json)")
+    else:
+        print("BOT_TOKEN=not_found — ensure OpenClaw is configured with Telegram")
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
@@ -1052,6 +1169,16 @@ def main():
     # board-image
     p_bi = sub.add_parser("board-image", help="Generate board PNG image")
     p_bi.add_argument("--game-id", required=True, help="Game ID")
+    p_bi.add_argument("--send-chat", metavar="CHAT_ID", default=None,
+                      help="Send image to this Telegram chat_id via Bot API")
+
+    # ai-move (single step for step-by-step practice)
+    p_aimove = sub.add_parser("ai-move", help="Get AI hint and submit one move")
+    p_aimove.add_argument("--game-id", required=True, help="Game ID")
+
+    # telegram-setup
+    p_tgsetup = sub.add_parser("telegram-setup", help="Save Telegram chat_id for board image sending")
+    p_tgsetup.add_argument("--chat-id", required=True, help="Telegram chat ID")
 
     # stats
     sub.add_parser("stats", help="Show win/loss/draw statistics")
@@ -1122,6 +1249,10 @@ def main():
         cmd_practice(args, cfg)
     elif args.command == "board-image":
         cmd_board_image(args, cfg)
+    elif args.command == "ai-move":
+        cmd_ai_move(args, cfg)
+    elif args.command == "telegram-setup":
+        cmd_telegram_setup(args, cfg)
     elif args.command == "stats":
         cmd_stats(args, cfg)
     elif args.command == "play":
