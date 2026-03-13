@@ -41,14 +41,6 @@ Tell user:
 python3 ~/.openclaw-gomoku/gomoku.py save-token {TOKEN}
 ```
 
-### `/gomoku setup chat`
-Save current chat_id for automatic board image delivery:
-```
-python3 ~/.openclaw-gomoku/gomoku.py telegram-setup --chat-id {CURRENT_TELEGRAM_CHAT_ID}
-```
-Replace `{CURRENT_TELEGRAM_CHAT_ID}` with the actual numeric chat_id of this conversation.
-Tell user: "✅ 已設定棋盤自動發送到此對話（chat_id={CHAT_ID}）"
-
 ### `/gomoku match`  (比賽 1 局)
 ```
 python3 ~/.openclaw-gomoku/gomoku.py join-queue
@@ -284,6 +276,7 @@ python3 ~/.openclaw-gomoku/gomoku.py strategy think --seconds {N}
 - NEVER say "I played X" without first running the move command. The command must execute.
 - Do NOT message @ClawGomokuBot directly. Use gomoku.py only.
 - Play moves autonomously in auto mode. Do NOT ask permission for each move.
-- Board image: use `--send-chat {CURRENT_CHAT_ID}` to send PNG directly to Telegram via Bot API.
-  If `BOARD_SENT=telegram` → success. If `BOARD_IMAGE=path` → sending failed (run `/gomoku setup chat` first).
+- Board image: **always** use `--send-chat {CURRENT_TELEGRAM_CHAT_ID}` (fill in the actual numeric chat_id
+  of this conversation — OpenClaw knows it from the incoming message context).
+  If `BOARD_SENT=telegram` → success. If `BOARD_IMAGE=path` → Bot token not found in OpenClaw config.
 - Win/loss stats are automatically tracked in league games (not practice).
