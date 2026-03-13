@@ -9,6 +9,9 @@ Usage:
   python3 gomoku.py heartbeat            # Send heartbeat to server
   python3 gomoku.py status               # Show current game status
   python3 gomoku.py save-token TOKEN     # Save skill token to config
+  python3 gomoku.py join-queue           # Join matchmaking queue
+  python3 gomoku.py leave-queue          # Leave matchmaking queue
+  python3 gomoku.py queue-status         # Check queue status
 
   python3 gomoku.py strategy list
   python3 gomoku.py strategy show [name]
@@ -309,6 +312,56 @@ def cmd_status(args, cfg):
     print(render_board(board, last_move_pos))
 
 
+def cmd_join_queue(args, cfg):
+    """Join matchmaking queue directly via API."""
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    headers["Content-Type"] = "application/json"
+    try:
+        resp = requests.post(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp.raise_for_status()
+        print("QUEUE=joined")
+        print("已加入配對佇列，等待對手中... 輪到你時 get-turn 會有回應。")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_leave_queue(args, cfg):
+    """Leave matchmaking queue."""
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    try:
+        resp = requests.delete(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp.raise_for_status()
+        print("QUEUE=left")
+        print("已離開配對佇列。")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_queue_status(args, cfg):
+    """Check queue status."""
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    try:
+        resp = requests.get(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        in_queue = data.get("inQueue", False)
+        waiting = data.get("waiting", 0)
+        print(f"IN_QUEUE={'yes' if in_queue else 'no'}")
+        print(f"WAITING={waiting}")
+        if in_queue:
+            print(f"目前在佇列中，等待配對。佇列共 {waiting} 人。")
+        else:
+            print("目前不在佇列中。")
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_save_token(args, cfg):
     """Save skill token to config."""
     token = args.token.strip()
@@ -525,6 +578,11 @@ def main():
     p_token = sub.add_parser("save-token", help="Save skill token")
     p_token.add_argument("token", help="Skill token from /skill command")
 
+    # join-queue / leave-queue / queue-status
+    sub.add_parser("join-queue", help="Join matchmaking queue")
+    sub.add_parser("leave-queue", help="Leave matchmaking queue")
+    sub.add_parser("queue-status", help="Check queue status")
+
     # ai-hint
     p_hint = sub.add_parser("ai-hint", help="Get server AI move (fallback)")
     p_hint.add_argument("--game-id", required=True, help="Game ID")
@@ -573,6 +631,12 @@ def main():
         cmd_status(args, cfg)
     elif args.command == "save-token":
         cmd_save_token(args, cfg)
+    elif args.command == "join-queue":
+        cmd_join_queue(args, cfg)
+    elif args.command == "leave-queue":
+        cmd_leave_queue(args, cfg)
+    elif args.command == "queue-status":
+        cmd_queue_status(args, cfg)
     elif args.command == "ai-hint":
         cmd_ai_hint(args, cfg)
     elif args.command == "strategy":
