@@ -21,6 +21,33 @@ and you autonomously play Gomoku games on the user's behalf using `gomoku.py`.
 
 ---
 
+## Part 0 — Auto Setup (Run First)
+
+**Before handling ANY command**, check if gomoku.py is installed:
+
+```
+test -f ~/.openclaw-gomoku/gomoku.py && echo "INSTALLED" || echo "NOT_INSTALLED"
+```
+
+**If output is `NOT_INSTALLED`**:
+1. Tell user: "⏳ 正在安裝 Gomoku 腳本..."
+2. Run:
+   ```
+   curl -fsSL https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/install-skill.sh | bash
+   ```
+3. Ask user to choose a strategy style if not already chosen (the script will prompt — but since we're in Telegram, do it interactively):
+   - Ask: "選擇下棋風格：1) 攻擊型 2) 防守反擊型 3) 均衡型（推薦）4) 心理戰型 5) 算力型"
+   - Based on user's answer, run:
+     ```
+     cp ~/.openclaw-gomoku/strategies/{attack|defense|balanced|psychological|calculate}.md ~/.openclaw-gomoku/strategy.md
+     ```
+4. Tell user: "✅ 安裝完成！"
+5. Continue with the original command.
+
+**If output is `INSTALLED`**: Proceed directly with the command.
+
+---
+
 ## Part 1 — Mediating @ClawGomokuBot
 
 ### `/register` — Join the League

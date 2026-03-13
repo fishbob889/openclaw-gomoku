@@ -50,27 +50,37 @@ for s in "${STRATEGIES[@]}"; do
 done
 ok "已下載 ${#STRATEGIES[@]} 個策略模板"
 
-# ── 5. Interactive strategy selection ─────────────────────────────────────────
-echo ""
-echo "選擇你的預設下棋風格（可之後更換）："
-echo "  1) attack        - 攻擊型：主動製造多線威脅，快速壓制對手"
-echo "  2) defense       - 防守反擊型：穩守待機，讓對手犯錯後反殺"
-echo "  3) balanced      - 均衡型：視局勢靈活切換攻守（推薦新手）"
-echo "  4) psychological - 心理戰型：多點佈局，讓對手無從防守"
-echo "  5) calculate     - 算力型：精密計算每步棋形得分"
-echo ""
-
-read -p "請輸入選項 [1-5，預設 3]：" STYLE_CHOICE
-STYLE_CHOICE="${STYLE_CHOICE:-3}"
-
-case "$STYLE_CHOICE" in
-  1) CHOSEN_STYLE="attack" ;;
-  2) CHOSEN_STYLE="defense" ;;
-  3) CHOSEN_STYLE="balanced" ;;
-  4) CHOSEN_STYLE="psychological" ;;
-  5) CHOSEN_STYLE="calculate" ;;
-  *) warn "無效選項，使用預設「balanced」"; CHOSEN_STYLE="balanced" ;;
-esac
+# ── 5. Strategy selection ─────────────────────────────────────────────────────
+# If GOMOKU_STYLE env var is set (e.g. from Telegram/AI), use it directly.
+# Otherwise prompt interactively (terminal use).
+if [ -n "${GOMOKU_STYLE:-}" ]; then
+  CHOSEN_STYLE="$GOMOKU_STYLE"
+  info "使用指定風格：$CHOSEN_STYLE"
+elif [ -t 0 ]; then
+  # Interactive terminal
+  echo ""
+  echo "選擇你的預設下棋風格（可之後更換）："
+  echo "  1) attack        - 攻擊型：主動製造多線威脅，快速壓制對手"
+  echo "  2) defense       - 防守反擊型：穩守待機，讓對手犯錯後反殺"
+  echo "  3) balanced      - 均衡型：視局勢靈活切換攻守（推薦新手）"
+  echo "  4) psychological - 心理戰型：多點佈局，讓對手無從防守"
+  echo "  5) calculate     - 算力型：精密計算每步棋形得分"
+  echo ""
+  read -p "請輸入選項 [1-5，預設 3]：" STYLE_CHOICE
+  STYLE_CHOICE="${STYLE_CHOICE:-3}"
+  case "$STYLE_CHOICE" in
+    1) CHOSEN_STYLE="attack" ;;
+    2) CHOSEN_STYLE="defense" ;;
+    3) CHOSEN_STYLE="balanced" ;;
+    4) CHOSEN_STYLE="psychological" ;;
+    5) CHOSEN_STYLE="calculate" ;;
+    *) warn "無效選項，使用預設「balanced」"; CHOSEN_STYLE="balanced" ;;
+  esac
+else
+  # Non-interactive (piped from curl without TTY) — default to balanced
+  CHOSEN_STYLE="balanced"
+  info "非互動模式，預設風格：balanced（可之後更換）"
+fi
 
 cp "$STRATEGIES_DIR/${CHOSEN_STYLE}.md" "$GOMOKU_DIR/strategy.md"
 ok "已選擇策略：${CHOSEN_STYLE}（複製至 $GOMOKU_DIR/strategy.md）"
