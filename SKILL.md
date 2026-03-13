@@ -79,50 +79,33 @@ Tell user: "已入隊，將自動比賽 {N} 局後停止。PID=$!"
 ## Practice Modes (練習局，不計積分)
 
 ### `/gomoku practice auto`  (AI 自動對練)
-AI controls each move. Board image sent to Telegram after every move.
+Background play loop handles all moves and sends board images to Telegram automatically.
 
-**STEP 1** — Start practice game:
+**STEP 1** — Save current chat_id so the play loop can send boards:
+```
+python3 ~/.openclaw-gomoku/gomoku.py telegram-setup --chat-id {CURRENT_TELEGRAM_CHAT_ID}
+```
+Fill in the actual numeric Telegram chat_id of this conversation.
+
+**STEP 2** — Start practice game:
 ```
 python3 ~/.openclaw-gomoku/gomoku.py practice
 ```
-Get `GAME_ID=` and `COLOR=` from output.
+Get `GAME_ID=` from output.
 
-**STEP 2** — Announce start:
-Tell user: "🎯 練習局開始！你是黑棋，對手是系統 AI（不計積分）\nGAME_ID: {GAME_ID[:8]}"
-
-**STEP 3** — Send initial board:
+**STEP 3** — Start background play loop (single game, sends board images automatically):
 ```
-python3 ~/.openclaw-gomoku/gomoku.py board-image --game-id {GAME_ID} --send-chat {CURRENT_TELEGRAM_CHAT_ID}
-```
-If `BOARD_SENT=telegram` → board was sent automatically.
-If `BOARD_IMAGE=...` → board was NOT sent to Telegram (setup chat first with `/gomoku setup chat`).
-
-**STEP 4** — Read strategy:
-```
-cat ~/.openclaw-gomoku/strategy.md
+pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play > /tmp/gomoku-play.log 2>&1 & echo "PRACTICE_PID=$!"
 ```
 
-**STEP 5** — Submit AI move:
+**STEP 4** — Tell user:
 ```
-python3 ~/.openclaw-gomoku/gomoku.py ai-move --game-id {GAME_ID}
+🎯 AI 練習局開始！（不計積分）
+棋盤圖將自動發送到此對話，每步一張。
+輸入 /gomoku stop 可停止。PID=$!
 ```
-Output: `MOVED={COORD}`, optionally `AI_MOVED={COORD}`, `GAME_OVER=true/false`
 
-**STEP 6** — Send board after move:
-```
-python3 ~/.openclaw-gomoku/gomoku.py board-image --game-id {GAME_ID} --send-chat {CURRENT_TELEGRAM_CHAT_ID}
-```
-Also tell user: `"第{move_count}手：黑棋落子 {MOVED}，白棋回應 {AI_MOVED}"`
-
-**STEP 7** — Check game over:
-- If `GAME_OVER=true` → announce result and stop:
-  ```
-  python3 ~/.openclaw-gomoku/gomoku.py stats
-  ```
-  Tell user: "🏁 練習結束！勝者：{WINNER}棋\n{若 WINNER=black → '🎉 AI贏了！' else '😊 系統AI贏了'}"
-- If `GAME_OVER=false` → go back to STEP 4
-
-⚠️ Loop STEP 4→7 until `GAME_OVER=true`. Do NOT start background play loop.
+The play loop will automatically send a board image to Telegram after every move until the game ends.
 
 ---
 

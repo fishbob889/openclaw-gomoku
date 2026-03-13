@@ -209,6 +209,33 @@ def _get_telegram_bot_token() -> str:
         return ""
 
 
+def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: str, api: str) -> None:
+    """Fetch latest board and send PNG to Telegram. Silent on failure."""
+    if not chat_id:
+        return
+    try:
+        resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+        if not resp.ok:
+            return
+        raw = resp.json()
+        data = raw.get("game") or raw
+        board = data.get("board") or []
+        moves = data.get("moves") or []
+        last_move_pos = None
+        if moves:
+            lm = moves[-1]
+            pos = lm.get("position") or lm
+            if isinstance(pos, dict) and "row" in pos:
+                last_move_pos = pos
+        path = generate_board_png(board, last_move_pos, game_id)
+        if path:
+            ok = send_board_to_telegram(path, chat_id, caption)
+            if ok:
+                print(f"[play] 棋盤圖已送出 chat_id={chat_id}", flush=True)
+    except Exception as e:
+        print(f"[play] board image error: {e}", file=sys.stderr, flush=True)
+
+
 def send_board_to_telegram(png_path: str, chat_id: str, caption: str = "") -> bool:
     """Send board PNG to Telegram via Bot API. Returns True on success."""
     bot_token = _get_telegram_bot_token()
@@ -775,6 +802,8 @@ def cmd_play(args, cfg):
     limit_str = f", max_games={max_games}" if max_games else ", unlimited"
     print(f"[play] Starting autonomous loop (poll every {poll_interval}s, auto_queue={auto_queue}{limit_str}). Ctrl+C to stop.")
 
+    tg_chat_id = cfg.get("telegram_chat_id", "")
+
     last_game_id = None
     game_my_color: dict = {}   # game_id → my color (for win/loss tracking)
     game_is_practice: dict = {}  # game_id → bool
@@ -900,6 +929,8 @@ def cmd_play(args, cfg):
                 reason = gr.get("reason", "")
                 ai_suffix = f" | opponent auto-moved {ai_coord}" if ai_coord else ""
                 print(f"[play] MOVED={coord}{ai_suffix}", flush=True)
+                winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
+                _send_board_after_move(game_id, move_num, f"🏁 第{move_num}手 {coord} — 遊戲結束！勝者：{winner_zh}", tg_chat_id, api)
                 games_played += 1
 
                 # Win/loss tracking (skip practice games)
@@ -953,6 +984,8 @@ def cmd_play(args, cfg):
                     continue
                 break
             print(f"[play] MOVED={coord}" + (f" | opponent auto-moved {ai_coord}" if ai_coord else ""), flush=True)
+            caption = f"第{move_num}手：{coord}" + (f" → {ai_coord}" if ai_coord else "")
+            _send_board_after_move(game_id, move_num, caption, tg_chat_id, api)
 
         except requests.exceptions.RequestException as e:
             print(f"[play] request error: {e}", file=sys.stderr, flush=True)
