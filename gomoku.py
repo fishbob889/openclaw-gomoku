@@ -611,6 +611,78 @@ def cmd_practice(args, cfg):
     print(f"使用 get-turn 查看棋盤，play 開始自動下棋。")
 
 
+# ── Practice Auto (all-in-one: chat_id auto-detect + practice + play loop) ───
+
+def _get_latest_telegram_chat_id() -> str:
+    """Fetch the most recent incoming message's chat_id via Telegram getUpdates."""
+    bot_token = _get_telegram_bot_token()
+    if not bot_token:
+        return ""
+    try:
+        resp = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/getUpdates",
+            params={"limit": 1, "offset": -1},
+            timeout=10,
+        )
+        if not resp.ok:
+            return ""
+        results = resp.json().get("result", [])
+        if not results:
+            return ""
+        msg = results[-1]
+        chat_id = (msg.get("message") or msg.get("callback_query", {}).get("message", {})).get("chat", {}).get("id", "")
+        return str(chat_id) if chat_id else ""
+    except Exception:
+        return ""
+
+
+def cmd_practice_auto(args, cfg):
+    """All-in-one: auto-detect Telegram chat_id, start practice game, launch play loop."""
+    import subprocess
+
+    # 1. Auto-detect chat_id and save to config
+    chat_id = _get_latest_telegram_chat_id() or cfg.get("telegram_chat_id", "")
+    if chat_id:
+        cfg["telegram_chat_id"] = str(chat_id)
+        save_config(cfg)
+        print(f"CHAT_ID={chat_id} (已儲存，棋盤圖將自動傳送)")
+    else:
+        print("CHAT_ID=not_found (棋盤圖無法自動傳送，請先執行 /gomoku setup chat)")
+
+    # 2. Start practice game
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    headers["Content-Type"] = "application/json"
+    try:
+        resp = requests.post(f"{api}/skill/practice", headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: 無法建立練習局: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    game_id = data.get("gameId", "")
+    print(f"PRACTICE_STARTED=ok")
+    print(f"GAME_ID={game_id}")
+
+    # 3. Kill any existing play loop then start new one
+    subprocess.run(["pkill", "-f", "gomoku.py play"], capture_output=True)
+    time.sleep(0.5)
+
+    script = str(Path(__file__).resolve())
+    log_file = "/tmp/gomoku-play.log"
+    proc = subprocess.Popen(
+        [sys.executable, script, "play"],
+        stdout=open(log_file, "w"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    print(f"PLAY_PID={proc.pid}")
+    print(f"LOG={log_file}")
+    print(f"✅ AI 練習局已啟動！棋盤圖每步自動傳送到 Telegram。")
+    print(f"   輸入 /gomoku stop 可停止。")
+
+
 # ── Board image ───────────────────────────────────────────────────────────────
 
 def cmd_board_image(args, cfg):
@@ -1199,6 +1271,9 @@ def main():
     # practice
     sub.add_parser("practice", help="Start a practice game vs system AI (no ELO)")
 
+    # practice-auto (all-in-one)
+    sub.add_parser("practice-auto", help="Start AI practice: auto chat_id + practice game + play loop")
+
     # board-image
     p_bi = sub.add_parser("board-image", help="Generate board PNG image")
     p_bi.add_argument("--game-id", required=True, help="Game ID")
@@ -1280,6 +1355,8 @@ def main():
             print("SET_GAMES=unlimited")
     elif args.command == "practice":
         cmd_practice(args, cfg)
+    elif args.command == "practice-auto":
+        cmd_practice_auto(args, cfg)
     elif args.command == "board-image":
         cmd_board_image(args, cfg)
     elif args.command == "ai-move":

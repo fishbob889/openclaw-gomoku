@@ -79,33 +79,12 @@ Tell user: "已入隊，將自動比賽 {N} 局後停止。PID=$!"
 ## Practice Modes (練習局，不計積分)
 
 ### `/gomoku practice auto`  (AI 自動對練)
-Background play loop handles all moves and sends board images to Telegram automatically.
-
-**STEP 1** — Save current chat_id so the play loop can send boards:
+Run this single command — it auto-detects the Telegram chat_id, starts a practice game, and launches the play loop:
 ```
-python3 ~/.openclaw-gomoku/gomoku.py telegram-setup --chat-id {CURRENT_TELEGRAM_CHAT_ID}
+python3 ~/.openclaw-gomoku/gomoku.py practice-auto
 ```
-Fill in the actual numeric Telegram chat_id of this conversation.
-
-**STEP 2** — Start practice game:
-```
-python3 ~/.openclaw-gomoku/gomoku.py practice
-```
-Get `GAME_ID=` from output.
-
-**STEP 3** — Start background play loop (single game, sends board images automatically):
-```
-pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play > /tmp/gomoku-play.log 2>&1 & echo "PRACTICE_PID=$!"
-```
-
-**STEP 4** — Tell user:
-```
-🎯 AI 練習局開始！（不計積分）
-棋盤圖將自動發送到此對話，每步一張。
-輸入 /gomoku stop 可停止。PID=$!
-```
-
-The play loop will automatically send a board image to Telegram after every move until the game ends.
+Output will show `PRACTICE_STARTED=ok`, `GAME_ID=`, `PLAY_PID=`.
+Tell user: "🎯 AI 練習局已啟動！棋盤圖每步自動傳送到此對話。輸入 /gomoku stop 可停止。"
 
 ---
 
