@@ -613,41 +613,60 @@ def cmd_practice(args, cfg):
 
 # ── Practice Auto (all-in-one: chat_id auto-detect + practice + play loop) ───
 
+PRACTICE_PID_FILE = CONFIG_DIR / "PRACTICE.pid"
+
+
 def _get_latest_telegram_chat_id() -> str:
-    """Fetch the most recent incoming message's chat_id via Telegram getUpdates."""
-    bot_token = _get_telegram_bot_token()
-    if not bot_token:
-        return ""
+    """Read the most recent Telegram chat_id from OpenClaw session files."""
+    import re
     try:
-        resp = requests.get(
-            f"https://api.telegram.org/bot{bot_token}/getUpdates",
-            params={"limit": 1, "offset": -1},
-            timeout=10,
-        )
-        if not resp.ok:
+        sessions_dir = Path.home() / ".openclaw" / "agents" / "main" / "sessions"
+        if not sessions_dir.exists():
             return ""
-        results = resp.json().get("result", [])
-        if not results:
-            return ""
-        msg = results[-1]
-        chat_id = (msg.get("message") or msg.get("callback_query", {}).get("message", {})).get("chat", {}).get("id", "")
-        return str(chat_id) if chat_id else ""
+        jsonl_files = sorted(sessions_dir.glob("*.jsonl"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for session_file in jsonl_files[:5]:
+            content = session_file.read_text(errors="ignore")
+            matches = re.findall(r'"chatId":\s*"(\d+)"', content)
+            if matches:
+                return matches[-1]
     except Exception:
-        return ""
+        pass
+    return ""
+
+
+def _is_practice_running() -> bool:
+    """Check if a practice play loop is already running via PID file."""
+    if not PRACTICE_PID_FILE.exists():
+        return False
+    try:
+        pid = int(PRACTICE_PID_FILE.read_text().strip())
+        Path(f"/proc/{pid}").stat()  # raises if process doesn't exist
+        return True
+    except Exception:
+        PRACTICE_PID_FILE.unlink(missing_ok=True)
+        return False
 
 
 def cmd_practice_auto(args, cfg):
-    """All-in-one: auto-detect Telegram chat_id, start practice game, launch play loop."""
+    """All-in-one: auto-detect Telegram chat_id, start practice game, launch play loop.
+    Guards against duplicate execution — if already running, prints status and exits."""
     import subprocess
+
+    # Guard: prevent duplicate practice sessions
+    if _is_practice_running():
+        pid = PRACTICE_PID_FILE.read_text().strip()
+        print(f"ALREADY_RUNNING=true PID={pid}")
+        print(f"練習局已在進行中（PID={pid}）。輸入 /gomoku stop 可停止。")
+        return
 
     # 1. Auto-detect chat_id and save to config
     chat_id = _get_latest_telegram_chat_id() or cfg.get("telegram_chat_id", "")
     if chat_id:
         cfg["telegram_chat_id"] = str(chat_id)
         save_config(cfg)
-        print(f"CHAT_ID={chat_id} (已儲存，棋盤圖將自動傳送)")
+        print(f"CHAT_ID={chat_id}")
     else:
-        print("CHAT_ID=not_found (棋盤圖無法自動傳送，請先執行 /gomoku setup chat)")
+        print("CHAT_ID=not_found")
 
     # 2. Start practice game
     api = get_api(cfg)
@@ -665,7 +684,7 @@ def cmd_practice_auto(args, cfg):
     print(f"PRACTICE_STARTED=ok")
     print(f"GAME_ID={game_id}")
 
-    # 3. Kill any existing play loop then start new one
+    # 3. Start play loop (no auto-queue → stops after 1 game)
     subprocess.run(["pkill", "-f", "gomoku.py play"], capture_output=True)
     time.sleep(0.5)
 
@@ -677,10 +696,9 @@ def cmd_practice_auto(args, cfg):
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
+    PRACTICE_PID_FILE.write_text(str(proc.pid))
     print(f"PLAY_PID={proc.pid}")
-    print(f"LOG={log_file}")
-    print(f"✅ AI 練習局已啟動！棋盤圖每步自動傳送到 Telegram。")
-    print(f"   輸入 /gomoku stop 可停止。")
+    print(f"✅ AI 練習局已啟動！棋盤圖每步自動傳送到 Telegram。輸入 /gomoku stop 可停止。")
 
 
 # ── Board image ───────────────────────────────────────────────────────────────
@@ -870,6 +888,12 @@ def cmd_play(args, cfg):
     max_games = getattr(args, "games", 0) or 0  # 0 = unlimited
     no_game_count = 0
     games_played = 0
+
+    # Register PID so practice-auto guard can detect us
+    try:
+        PRACTICE_PID_FILE.write_text(str(os.getpid()))
+    except Exception:
+        pass
 
     limit_str = f", max_games={max_games}" if max_games else ", unlimited"
     print(f"[play] Starting autonomous loop (poll every {poll_interval}s, auto_queue={auto_queue}{limit_str}). Ctrl+C to stop.")
@@ -1068,6 +1092,10 @@ def cmd_play(args, cfg):
             print(f"[play] unexpected error: {e}", file=sys.stderr, flush=True)
 
         time.sleep(poll_interval)
+
+    # Cleanup PID file when loop exits
+    PRACTICE_PID_FILE.unlink(missing_ok=True)
+    print("[play] 結束。", flush=True)
 
 
 # ── Strategy commands ────────────────────────────────────────────────────────
