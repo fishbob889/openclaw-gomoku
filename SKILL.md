@@ -43,21 +43,11 @@ python3 ~/.openclaw-gomoku/gomoku.py save-token {TOKEN}
 
 ### `/gomoku match`  (比賽 1 局)
 ```
-python3 ~/.openclaw-gomoku/gomoku.py join-queue
-python3 ~/.openclaw-gomoku/gomoku.py set-games 1
-```
-Then start autonomous play loop:
-```
-pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
+pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play --auto-queue --games 1 > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
 ```
 Tell user: "已入隊，比賽 1 局後自動停止。PID=$!"
 
 ### `/gomoku match 0`  (持續比賽，直到 /gomoku stop)
-```
-python3 ~/.openclaw-gomoku/gomoku.py join-queue
-python3 ~/.openclaw-gomoku/gomoku.py set-games 0
-```
-Then start autonomous play loop:
 ```
 pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
 ```
@@ -65,12 +55,7 @@ Tell user: "已入隊，無限對局模式，輸入 /gomoku stop 停止。PID=$!
 
 ### `/gomoku match {N}`  (比賽 N 局)
 ```
-python3 ~/.openclaw-gomoku/gomoku.py join-queue
-python3 ~/.openclaw-gomoku/gomoku.py set-games {N}
-```
-Then start autonomous play loop:
-```
-pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
+pkill -f "gomoku.py play" 2>/dev/null; nohup python3 ~/.openclaw-gomoku/gomoku.py play --auto-queue --games {N} > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
 ```
 Tell user: "已入隊，將自動比賽 {N} 局後停止。PID=$!"
 
@@ -78,59 +63,46 @@ Tell user: "已入隊，將自動比賽 {N} 局後停止。PID=$!"
 
 ## Practice Modes (練習局，不計積分)
 
-### `/gomoku practice auto`  (AI 自動對練)
-Run this single command — it auto-detects the Telegram chat_id, starts a practice game, and launches the play loop:
+### `/gomoku practice auto [--level N]`  (AI 自動對練)
+Run this single command — it auto-detects the Telegram chat_id, starts a practice game, and launches the play loop.
+If `--level N` is given (1-6), the AI opponent is that level; otherwise random.
 ```
-python3 ~/.openclaw-gomoku/gomoku.py practice-auto
+python3 ~/.openclaw-gomoku/gomoku.py practice-auto [--level N]
 ```
-Output will show `PRACTICE_STARTED=ok`, `GAME_ID=`, `PLAY_PID=`.
-Tell user: "🎯 AI 練習局已啟動！棋盤圖每步自動傳送到此對話。輸入 /gomoku stop 可停止。"
+Output will show `PRACTICE_STARTED=ok`, `MY_COLOR=`, `AI_LEVEL=`, `AI_NAME=`, `PLAY_PID=`.
+Relay the output message to user (it includes color, opponent name and level).
 
 ---
 
-### `/gomoku practice human`  (人工對練，owner 輸入座標)
-Owner types move coordinates. Board image sent to Telegram after every move.
+### `/gomoku practice human [--level N]`  (人工對練，owner 輸入座標)
+One command starts the game AND launches the background monitor.
+Board PNG is sent to Telegram automatically — **2 images per round** (one after your move, one after opponent's).
+The monitor also sends a "your turn" prompt asking for a coordinate.
+If `--level N` is given (1-6), the AI opponent is that level; otherwise random.
 
-**STEP 1** — Start practice game:
+**START**:
 ```
-python3 ~/.openclaw-gomoku/gomoku.py practice
+python3 ~/.openclaw-gomoku/gomoku.py practice-human [--level N]
 ```
-Get `GAME_ID=` and `COLOR=` from output. Save GAME_ID in memory for this session.
+Relay the output message to user. The background monitor handles all board sending from here.
 
-**STEP 2** — Send initial board:
-```
-python3 ~/.openclaw-gomoku/gomoku.py board-image --game-id {GAME_ID} --send-chat {CURRENT_TELEGRAM_CHAT_ID}
-```
-
-**STEP 3** — Ask user for move:
-Tell user:
-```
-🎮 練習局開始！你是黑棋，對手是系統 AI（不計積分）
-請輸入你的落子座標，例如：H8
-輸入 /gomoku stop 可結束練習
-```
-
-**STEP 4** — Wait for user coordinate input.
-When the user sends a coordinate (e.g. `H8`, `G7`, `A1`—letter A-O + number 1-15):
-- Recognize it as a move for the current practice game
+**When user sends a coordinate** (e.g. `H8`, `G7`, `J10` — letter A-O + number 1-15):
+- Recognize it as a move for the active practice game
 - Run:
 ```
-python3 ~/.openclaw-gomoku/gomoku.py move --game-id {GAME_ID} --move {COORDINATE}
+python3 ~/.openclaw-gomoku/gomoku.py move --move {COORDINATE}
 ```
-Output: `MOVED={COORD}`, optionally `AI_MOVED={COORD}`, `FINISHED=true/false`
+(`--game-id` is optional — auto-read from PRACTICE.game)
+- If `GAME_OVER=true` → tell user "落子完成！等待最終結果…" (monitor sends result automatically)
+- If `GAME_OVER=false` → say nothing; monitor sends the updated boards automatically
 
-**STEP 5** — Send updated board:
+**During practice-human session**: Any message matching `^[A-O](1[0-5]|[1-9])$` is a move coordinate. Other messages are normal commands.
+
+**STOP**:
 ```
-python3 ~/.openclaw-gomoku/gomoku.py board-image --game-id {GAME_ID} --send-chat {CURRENT_TELEGRAM_CHAT_ID}
+python3 ~/.openclaw-gomoku/gomoku.py leave-queue
+touch ~/.openclaw-gomoku/STOP
 ```
-Also tell user: `"你落子 {COORDINATE}，對手回應 {AI_MOVED}"`
-
-**STEP 6** — Check game over:
-- If `FINISHED=true` in move output → announce result and stop:
-  Tell user: "🏁 練習結束！勝者：{WINNER}棋"
-- If `FINISHED=false` → go back to STEP 3 (ask for next move)
-
-**During human practice session**: Any message matching `[A-O][1-9]` or `[A-O]1[0-5]` is a move coordinate for the current game. Other messages are normal commands.
 
 ---
 
@@ -242,3 +214,4 @@ python3 ~/.openclaw-gomoku/gomoku.py strategy think --seconds {N}
   of this conversation — OpenClaw knows it from the incoming message context).
   If `BOARD_SENT=telegram` → success. If `BOARD_IMAGE=path` → Bot token not found in OpenClaw config.
 - Win/loss stats are automatically tracked in league games (not practice).
+- **Timeout rule**: If a player does not move within 60 seconds, the server AI (L3) automatically plays one move on their behalf. When the player recovers, they resume normally — no interruption.

@@ -236,6 +236,93 @@ def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: s
         print(f"[play] board image error: {e}", file=sys.stderr, flush=True)
 
 
+def _call_surrender(game_id: str, api: str, headers: dict) -> bool:
+    """Tell server to take over all remaining moves for this game."""
+    try:
+        resp = requests.post(f"{api}/games/skill/{game_id}/surrender", headers=headers, timeout=10)
+        return resp.ok
+    except Exception as e:
+        print(f"[surrender] error: {e}", file=sys.stderr)
+        return False
+
+
+def _spectate_until_done(game_id: str, my_color: str, opp_name: str,
+                          chat_id: str, api: str, last_sent_count: int) -> None:
+    """Spectator mode: poll game and send board PNGs until game over. No moves submitted."""
+    print(f"[spectate] watching game={game_id[:8]} until finish", flush=True)
+    while True:
+        try:
+            resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+            if not resp.ok:
+                time.sleep(2)
+                continue
+            raw  = resp.json()
+            game = raw.get("game") or raw
+
+            status = game.get("status", "")
+            moves  = game.get("moves") or []
+            if isinstance(moves, str):
+                moves = json.loads(moves)
+            board = game.get("board") or game.get("board_state") or []
+            if isinstance(board, str):
+                board = json.loads(board)
+            move_count = len(moves)
+
+            # Send a board PNG for every new move
+            while last_sent_count < move_count - 1:
+                idx        = last_sent_count + 1
+                move_entry = moves[idx]
+                pos        = move_entry.get("position") or move_entry
+                if not (isinstance(pos, dict) and "row" in pos):
+                    last_sent_count += 1
+                    continue
+                coord       = pos_to_coord(pos["row"], pos["col"])
+                mover       = "black" if idx % 2 == 0 else "white"
+                color_emoji = "⬛" if mover == "black" else "⬜"
+                # Both sides now played by server AI; label accordingly
+                label = "（系統代打）" if mover == my_color else f"（{opp_name}）"
+                caption = f"第{idx + 1}手：{coord} {color_emoji}{label}"
+                path = generate_board_png(board, pos, game_id)
+                if path and chat_id:
+                    send_board_to_telegram(path, chat_id, caption)
+                print(f"[spectate] board #{idx + 1} {coord} sent", flush=True)
+                last_sent_count += 1
+                if last_sent_count < move_count - 1:
+                    time.sleep(0.5)
+
+            if status in ("finished", "abandoned"):
+                result = game.get("result") or {}
+                winner = result.get("winner") or game.get("winner", "")
+                if winner == my_color:
+                    result_msg = "🏆 本局系統代打勝利！"
+                elif winner in ("black", "white"):
+                    result_msg = f"😔 本局系統代打失敗，{opp_name} 獲勝。"
+                else:
+                    result_msg = "🤝 本局平局。"
+                if chat_id:
+                    _send_telegram_text(chat_id, result_msg)
+                print(f"[spectate] game over {result_msg}", flush=True)
+                break
+
+        except Exception as e:
+            print(f"[spectate] error: {e}", file=sys.stderr)
+        time.sleep(2)
+
+
+def _send_telegram_text(chat_id: str, text: str) -> bool:
+    """Send a plain text message to Telegram via Bot API."""
+    bot_token = _get_telegram_bot_token()
+    if not bot_token:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        resp = requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=10)
+        return resp.ok
+    except Exception as e:
+        print(f"[telegram] send text error: {e}", file=sys.stderr)
+        return False
+
+
 def send_board_to_telegram(png_path: str, chat_id: str, caption: str = "") -> bool:
     """Send board PNG to Telegram via Bot API. Returns True on success."""
     bot_token = _get_telegram_bot_token()
@@ -407,12 +494,22 @@ def cmd_get_turn(args, cfg):
 
 
 def cmd_move(args, cfg):
-    """Submit a move to the API."""
+    """Submit a move to the API. --game-id optional: auto-reads from PRACTICE.game."""
     api = get_api(cfg)
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
 
-    game_id = args.game_id
+    game_id  = getattr(args, 'game_id', None) or None
+    if not game_id:
+        try:
+            state   = json.loads(PRACTICE_GAME_FILE.read_text())
+            game_id = state.get("gameId", "")
+        except Exception:
+            pass
+    if not game_id:
+        print("ERROR: --game-id required (or start a practice-human session first)", file=sys.stderr)
+        sys.exit(1)
+
     move_str = args.move.strip().upper()
 
     try:
@@ -592,28 +689,36 @@ def cmd_save_token(args, cfg):
 
 def cmd_practice(args, cfg):
     """Start a practice game against system AI (is_practice=true, no ELO)."""
+    import random as _random
+    level = getattr(args, 'level', None) or _random.randint(1, 6)
     api = get_api(cfg)
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/practice", headers=headers, timeout=15)
+        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    game_id = data.get("gameId", "")
+    game_id  = data.get("gameId", "")
+    my_color = data.get("myColor", "black")
+    ai_level = data.get("aiLevel", level)
+    ai_name  = data.get("aiName", "AI")
     print(f"PRACTICE_STARTED=ok")
     print(f"GAME_ID={game_id}")
-    print(f"COLOR=black")
-    print(f"對手：系統 AI（L3）。練習局不計入聯盟積分。")
+    print(f"COLOR={my_color}")
+    print(f"AI_LEVEL={ai_level}")
+    print(f"AI_NAME={ai_name}")
+    print(f"對手：{ai_name}（L{ai_level}）。練習局不計入聯盟積分。")
     print(f"使用 get-turn 查看棋盤，play 開始自動下棋。")
 
 
 # ── Practice Auto (all-in-one: chat_id auto-detect + practice + play loop) ───
 
-PRACTICE_PID_FILE = CONFIG_DIR / "PRACTICE.pid"
+PRACTICE_PID_FILE  = CONFIG_DIR / "PRACTICE.pid"
+PRACTICE_GAME_FILE = CONFIG_DIR / "PRACTICE.game"
 
 
 def _get_latest_telegram_chat_id() -> str:
@@ -650,7 +755,7 @@ def _is_practice_running() -> bool:
 def cmd_practice_auto(args, cfg):
     """All-in-one: auto-detect Telegram chat_id, start practice game, launch play loop.
     Guards against duplicate execution — if already running, prints status and exits."""
-    import subprocess
+    import subprocess, random as _random
 
     # Guard: prevent duplicate practice sessions
     if _is_practice_running():
@@ -658,6 +763,8 @@ def cmd_practice_auto(args, cfg):
         print(f"ALREADY_RUNNING=true PID={pid}")
         print(f"練習局已在進行中（PID={pid}）。輸入 /gomoku stop 可停止。")
         return
+
+    level = getattr(args, 'level', None) or _random.randint(1, 6)
 
     # 1. Auto-detect chat_id and save to config
     chat_id = _get_latest_telegram_chat_id() or cfg.get("telegram_chat_id", "")
@@ -673,16 +780,22 @@ def cmd_practice_auto(args, cfg):
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/practice", headers=headers, timeout=15)
+        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
         print(f"ERROR: 無法建立練習局: {e}", file=sys.stderr)
         sys.exit(1)
 
-    game_id = data.get("gameId", "")
+    game_id  = data.get("gameId", "")
+    my_color = data.get("myColor", "black")
+    ai_level = data.get("aiLevel", level)
+    ai_name  = data.get("aiName", "AI")
     print(f"PRACTICE_STARTED=ok")
     print(f"GAME_ID={game_id}")
+    print(f"MY_COLOR={my_color}")
+    print(f"AI_LEVEL={ai_level}")
+    print(f"AI_NAME={ai_name}")
 
     # 3. Start play loop (no auto-queue → stops after 1 game)
     subprocess.run(["pkill", "-f", "gomoku.py play"], capture_output=True)
@@ -698,7 +811,189 @@ def cmd_practice_auto(args, cfg):
     )
     PRACTICE_PID_FILE.write_text(str(proc.pid))
     print(f"PLAY_PID={proc.pid}")
-    print(f"✅ AI 練習局已啟動！棋盤圖每步自動傳送到 Telegram。輸入 /gomoku stop 可停止。")
+    my_zh = "黑棋" if my_color == "black" else "白棋"
+    print(f"✅ AI 練習局已啟動！你執{my_zh}，對手 {ai_name}（L{ai_level}）。棋盤圖每步自動傳送到 Telegram。輸入 /gomoku stop 可停止。")
+
+
+# ── Practice Human ────────────────────────────────────────────────────────────
+
+def cmd_practice_human(args, cfg):
+    """Human practice: owner inputs coordinates via Telegram. 2 board PNGs sent per round."""
+    import subprocess, random as _random
+
+    if _is_practice_running():
+        pid = PRACTICE_PID_FILE.read_text().strip()
+        print(f"ALREADY_RUNNING=true PID={pid}")
+        print(f"練習局已在進行中（PID={pid}）。輸入 /gomoku stop 可停止。")
+        return
+
+    level = getattr(args, 'level', None) or _random.randint(1, 6)
+
+    chat_id = _get_latest_telegram_chat_id() or cfg.get("telegram_chat_id", "")
+    if chat_id:
+        cfg["telegram_chat_id"] = str(chat_id)
+        save_config(cfg)
+
+    api = get_api(cfg)
+    headers = get_headers(cfg)
+    headers["Content-Type"] = "application/json"
+    try:
+        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"ERROR: 無法建立練習局: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    game_id  = data.get("gameId", "")
+    my_color = data.get("myColor", "black")
+    ai_level = data.get("aiLevel", level)
+    ai_name  = data.get("aiName", "AI")
+
+    # Save state so cmd_move can auto-read game_id
+    PRACTICE_GAME_FILE.write_text(json.dumps({
+        "gameId": game_id, "myColor": my_color, "aiLevel": ai_level, "aiName": ai_name,
+    }))
+
+    print(f"PRACTICE_STARTED=ok")
+    print(f"GAME_ID={game_id}")
+    print(f"MY_COLOR={my_color}")
+    print(f"AI_LEVEL={ai_level}")
+    print(f"AI_NAME={ai_name}")
+
+    my_zh  = "黑棋 ⬛" if my_color == "black" else "白棋 ⬜"
+    opp_zh = "白棋 ⬜" if my_color == "black" else "黑棋 ⬛"
+    if chat_id:
+        if my_color == "white":
+            _send_telegram_text(chat_id,
+                f"🎮 練習局開始！你執{my_zh}，對手 {ai_name}（L{ai_level}）{opp_zh}\n等待 {ai_name} 先手…")
+        else:
+            _send_telegram_text(chat_id,
+                f"🎮 練習局開始！你執{my_zh}，對手 {ai_name}（L{ai_level}）{opp_zh}")
+
+    # Launch background monitor loop
+    script   = str(Path(__file__).resolve())
+    log_file = "/tmp/gomoku-practice-human.log"
+    cmd = [sys.executable, script, "_practice-human-loop",
+           "--game-id", game_id, "--my-color", my_color,
+           "--ai-level", str(ai_level), "--ai-name", ai_name]
+    if chat_id:
+        cmd += ["--chat-id", str(chat_id)]
+    proc = subprocess.Popen(cmd, stdout=open(log_file, "w"),
+                            stderr=subprocess.STDOUT, start_new_session=True)
+    PRACTICE_PID_FILE.write_text(str(proc.pid))
+    print(f"MONITOR_PID={proc.pid}")
+    print(f"✅ 練習局已啟動！你執{my_zh}，對手 {ai_name}（L{ai_level}）。")
+    print(f"   在 Telegram 輸入座標（如 H8）落子。輸入 /gomoku stop 結束。")
+
+
+def _cmd_practice_human_loop(args, cfg):
+    """Background monitor for practice-human. Polls game state and sends board PNG to Telegram."""
+    game_id  = args.game_id
+    my_color = args.my_color
+    ai_level = int(getattr(args, 'ai_level', 3))
+    ai_name  = getattr(args, 'ai_name', 'AI')
+    chat_id  = getattr(args, 'chat_id', '') or cfg.get("telegram_chat_id", "")
+
+    PRACTICE_PID_FILE.write_text(str(os.getpid()))
+    api     = get_api(cfg)
+    headers = get_headers(cfg)
+
+    last_sent_count = -1   # move index up to which we've sent a board
+    prompt_sent     = False
+
+    print(f"[practice-human] monitor started game={game_id[:8]} my={my_color}", flush=True)
+
+    while True:
+        # ── Check for stop signal ────────────────────────────────────────────
+        if STOP_FILE.exists():
+            STOP_FILE.unlink(missing_ok=True)
+            print("[practice-human] STOP detected — surrendering to server AI", flush=True)
+            _call_surrender(game_id, api, headers)
+            if chat_id:
+                _send_telegram_text(chat_id, "你已退出本局。現在由系統接手。")
+            _spectate_until_done(game_id, my_color, ai_name, chat_id, api, last_sent_count)
+            PRACTICE_PID_FILE.unlink(missing_ok=True)
+            PRACTICE_GAME_FILE.unlink(missing_ok=True)
+            break
+
+        try:
+            resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+            if not resp.ok:
+                time.sleep(2)
+                continue
+            raw  = resp.json()
+            game = raw.get("game") or raw
+
+            status = game.get("status", "")
+            moves  = game.get("moves") or []
+            if isinstance(moves, str):
+                moves = json.loads(moves)
+            board = game.get("board") or game.get("board_state") or []
+            if isinstance(board, str):
+                board = json.loads(board)
+            current_player = game.get("currentPlayer") or game.get("current_player", "")
+            move_count = len(moves)
+
+            # ── Send board PNG for every new move (2 per round) ──────────────
+            while last_sent_count < move_count - 1:
+                idx        = last_sent_count + 1          # 0-based index of this move
+                move_entry = moves[idx]
+                pos        = move_entry.get("position") or move_entry
+                if not (isinstance(pos, dict) and "row" in pos):
+                    last_sent_count += 1
+                    continue
+                coord       = pos_to_coord(pos["row"], pos["col"])
+                mover       = "black" if idx % 2 == 0 else "white"
+                color_emoji = "⬛" if mover == "black" else "⬜"
+                label       = "（我）" if mover == my_color else f"（{ai_name}）"
+                caption     = f"第{idx + 1}手：{coord} {color_emoji}{label}"
+                path = generate_board_png(board, pos, game_id)
+                if path and chat_id:
+                    send_board_to_telegram(path, chat_id, caption)
+                print(f"[practice-human] board #{idx + 1} {coord} sent", flush=True)
+                last_sent_count += 1
+                if last_sent_count < move_count - 1:
+                    time.sleep(0.8)   # brief pause between the 2 boards
+
+            # ── Game over ────────────────────────────────────────────────────
+            if status in ("finished", "abandoned"):
+                result = game.get("result") or {}
+                winner = result.get("winner") or game.get("winner", "")
+                if winner == my_color:
+                    result_msg = "🏆 你贏了！"
+                elif winner in ("black", "white"):
+                    result_msg = f"😔 你輸了。{ai_name} 獲勝。"
+                else:
+                    result_msg = "🤝 平局！"
+                if chat_id:
+                    _send_telegram_text(chat_id,
+                        f"{result_msg}\n\n再來一局？輸入：\n/gomoku practice human --level {ai_level}")
+                PRACTICE_PID_FILE.unlink(missing_ok=True)
+                PRACTICE_GAME_FILE.unlink(missing_ok=True)
+                print(f"[practice-human] game over — {result_msg}", flush=True)
+                break
+
+            # ── "Your turn" prompt ───────────────────────────────────────────
+            if current_player == my_color and status == "playing":
+                if not prompt_sent:
+                    turn_num = move_count + 1
+                    if chat_id:
+                        _send_telegram_text(chat_id,
+                            f"🎯 你的回合（第 {turn_num} 手）\n請輸入座標，例如：H8")
+                    prompt_sent = True
+                    print(f"[practice-human] sent 'your turn' turn={turn_num}", flush=True)
+            else:
+                prompt_sent = False
+
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"[practice-human] error: {e}", file=sys.stderr, flush=True)
+
+        time.sleep(2)
+
+    print("[practice-human] monitor exited", flush=True)
 
 
 # ── Board image ───────────────────────────────────────────────────────────────
@@ -898,6 +1193,14 @@ def cmd_play(args, cfg):
     limit_str = f", max_games={max_games}" if max_games else ", unlimited"
     print(f"[play] Starting autonomous loop (poll every {poll_interval}s, auto_queue={auto_queue}{limit_str}). Ctrl+C to stop.")
 
+    # Auto-join queue on startup if auto_queue mode
+    if auto_queue:
+        try:
+            requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+            print("[play] Auto-queue: joined matchmaking on startup.", flush=True)
+        except Exception as e:
+            print(f"[play] Auto-queue: failed to join on startup: {e}", flush=True)
+
     tg_chat_id = cfg.get("telegram_chat_id", "")
 
     last_game_id = None
@@ -906,14 +1209,17 @@ def cmd_play(args, cfg):
     no_rejoin = False  # True after STOP detected: finish current game then exit
 
     def check_dynamic_max() -> int:
-        """Read MAX_GAMES file if present; returns limit or 0 (unlimited)."""
+        """Return effective game limit. CLI --games takes priority; MAX_GAMES_FILE is only
+        consulted when no CLI limit was given (max_games == 0)."""
+        if max_games > 0:
+            return max_games  # CLI --games N always wins
         try:
             if MAX_GAMES_FILE.exists():
                 val = int(MAX_GAMES_FILE.read_text().strip())
                 return val
         except Exception:
             pass
-        return max_games  # fall back to CLI --games value
+        return 0  # unlimited
 
     while True:
         try:
@@ -988,6 +1294,17 @@ def cmd_play(args, cfg):
             game_type = 'PRACTICE' if is_practice else 'LEAGUE'
             print(f"[play] {game_type} GAME={game_id[:8]} COLOR={color} TURN={move_num} "
                   f"vs {opp_name}" + (f" ({opp_model})" if opp_model else ""), flush=True)
+
+            # Check STOP during practice — surrender immediately, then spectate
+            if STOP_FILE.exists() and is_practice:
+                STOP_FILE.unlink(missing_ok=True)
+                print("[play] STOP detected during practice — surrendering to server AI", flush=True)
+                _call_surrender(game_id, api, move_headers)
+                if tg_chat_id:
+                    _send_telegram_text(tg_chat_id, "你已退出本局。現在由系統接手。")
+                _spectate_until_done(game_id, color, opp_name, tg_chat_id, api, len(moves) - 1)
+                PRACTICE_PID_FILE.unlink(missing_ok=True)
+                break
 
             # Get server AI hint
             hint_resp = requests.get(
@@ -1265,7 +1582,7 @@ def main():
 
     # move
     p_move = sub.add_parser("move", help="Submit a move")
-    p_move.add_argument("--game-id", required=True, help="Game ID")
+    p_move.add_argument("--game-id", default=None, help="Game ID (auto-read from PRACTICE.game if omitted)")
     p_move.add_argument("--move", required=True, help="Coordinate (e.g. H8)")
 
     # heartbeat
@@ -1297,10 +1614,27 @@ def main():
                         help="Stop after N games (default: 0 = unlimited)")
 
     # practice
-    sub.add_parser("practice", help="Start a practice game vs system AI (no ELO)")
+    p_prac = sub.add_parser("practice", help="Start a practice game vs system AI (no ELO)")
+    p_prac.add_argument("--level", type=int, default=None, metavar="N",
+                        help="AI level 1-6 (default: random)")
 
-    # practice-auto (all-in-one)
-    sub.add_parser("practice-auto", help="Start AI practice: auto chat_id + practice game + play loop")
+    # practice-auto (all-in-one, AI decides moves)
+    p_prac_auto = sub.add_parser("practice-auto", help="AI practice: auto chat_id + practice game + play loop")
+    p_prac_auto.add_argument("--level", type=int, default=None, metavar="N",
+                             help="AI opponent level 1-6 (default: random)")
+
+    # practice-human (owner inputs coordinates via Telegram)
+    p_prac_human = sub.add_parser("practice-human", help="Human practice: owner inputs moves via Telegram")
+    p_prac_human.add_argument("--level", type=int, default=None, metavar="N",
+                              help="AI opponent level 1-6 (default: random)")
+
+    # _practice-human-loop (internal background monitor, not for direct use)
+    p_ph_loop = sub.add_parser("_practice-human-loop", help=argparse.SUPPRESS)
+    p_ph_loop.add_argument("--game-id",  required=True)
+    p_ph_loop.add_argument("--my-color", required=True, dest="my_color")
+    p_ph_loop.add_argument("--ai-level", required=True, dest="ai_level")
+    p_ph_loop.add_argument("--ai-name",  required=True, dest="ai_name")
+    p_ph_loop.add_argument("--chat-id",  default="",    dest="chat_id")
 
     # board-image
     p_bi = sub.add_parser("board-image", help="Generate board PNG image")
@@ -1385,6 +1719,10 @@ def main():
         cmd_practice(args, cfg)
     elif args.command == "practice-auto":
         cmd_practice_auto(args, cfg)
+    elif args.command == "practice-human":
+        cmd_practice_human(args, cfg)
+    elif args.command == "_practice-human-loop":
+        _cmd_practice_human_loop(args, cfg)
     elif args.command == "board-image":
         cmd_board_image(args, cfg)
     elif args.command == "ai-move":
