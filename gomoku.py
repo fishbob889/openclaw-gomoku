@@ -899,8 +899,8 @@ def _cmd_practice_human_loop(args, cfg):
     api     = get_api(cfg)
     headers = get_headers(cfg)
 
-    last_sent_count = -1   # move index up to which we've sent a board
-    prompt_sent     = False
+    last_sent_count      = -1   # move index up to which we've sent a board
+    prompt_sent_at_count = -1   # move_count at which we last sent "your turn" prompt
 
     print(f"[practice-human] monitor started game={game_id[:8]} my={my_color}", flush=True)
 
@@ -975,16 +975,16 @@ def _cmd_practice_human_loop(args, cfg):
                 break
 
             # ── "Your turn" prompt ───────────────────────────────────────────
+            # Use move_count as key: resend prompt whenever move_count changes
+            # (handles the case where both moves land before the next poll)
             if current_player == my_color and status == "playing":
-                if not prompt_sent:
+                if move_count != prompt_sent_at_count:
                     turn_num = move_count + 1
                     if chat_id:
                         _send_telegram_text(chat_id,
                             f"🎯 你的回合（第 {turn_num} 手）\n請輸入座標，例如：H8")
-                    prompt_sent = True
+                    prompt_sent_at_count = move_count
                     print(f"[practice-human] sent 'your turn' turn={turn_num}", flush=True)
-            else:
-                prompt_sent = False
 
         except KeyboardInterrupt:
             break
