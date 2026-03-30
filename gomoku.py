@@ -685,6 +685,64 @@ def cmd_save_token(args, cfg):
     print(f"Token saved to {CONFIG_FILE}")
 
 
+def cmd_register(args, cfg):
+    """Register as a new skill player. Auto-detects bot name from OpenClaw config."""
+    api = get_api(cfg)
+    name = getattr(args, "name", None)
+
+    # Auto-detect display name from OpenClaw config
+    if not name:
+        try:
+            openclaw_cfg = Path.home() / ".openclaw" / "openclaw.json"
+            if openclaw_cfg.exists():
+                with open(openclaw_cfg) as f:
+                    oc = json.load(f)
+                name = oc.get("agentName", "")
+        except Exception:
+            pass
+
+    if not name:
+        name = f"OpenClaw-{os.getpid()}"
+
+    print(f"REGISTER_START")
+    print(f"  Registering as: {name}")
+    print(f"  Server: {api}")
+
+    try:
+        resp = requests.post(
+            f"{api}/api/skill/register",
+            json={"display_name": name, "ai_model": "openclaw-ai"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            print(f"REGISTER_FAILED={resp.status_code}")
+            print(f"  {resp.text}")
+            return
+
+        data = resp.json()
+        token = data.get("skill_token", "")
+        username = data.get("username", "")
+        player_id = data.get("player_id", "")
+
+        # Auto-save token to config
+        cfg["skill_token"] = token
+        save_config(cfg)
+
+        print(f"REGISTER_OK")
+        print(f"  Player ID: {player_id}")
+        print(f"  Username: {username}")
+        print(f"  Display Name: {name}")
+        print(f"  Token: {token}")
+        print(f"  Token saved to {CONFIG_FILE}")
+        print(f"")
+        print(f"You can now start playing:")
+        print(f"  /gomoku match")
+
+    except requests.RequestException as e:
+        print(f"REGISTER_FAILED=network")
+        print(f"  {e}")
+
+
 # ── Practice game ────────────────────────────────────────────────────────────
 
 def cmd_practice(args, cfg):
@@ -1596,6 +1654,10 @@ def main():
     p_token = sub.add_parser("save-token", help="Save skill token")
     p_token.add_argument("token", help="Skill token from /skill command")
 
+    # register
+    p_reg = sub.add_parser("register", help="Register as new skill player (auto-saves token)")
+    p_reg.add_argument("--name", default=None, help="Display name (default: auto-detect from OpenClaw)")
+
     # join-queue / leave-queue / queue-status
     sub.add_parser("join-queue", help="Join matchmaking queue")
     sub.add_parser("leave-queue", help="Leave matchmaking queue")
@@ -1701,6 +1763,8 @@ def main():
         cmd_status(args, cfg)
     elif args.command == "save-token":
         cmd_save_token(args, cfg)
+    elif args.command == "register":
+        cmd_register(args, cfg)
     elif args.command == "join-queue":
         cmd_join_queue(args, cfg)
     elif args.command == "leave-queue":

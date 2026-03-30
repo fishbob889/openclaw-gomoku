@@ -29,14 +29,16 @@ If `MISSING`: run `curl -fsSL https://raw.githubusercontent.com/fishbob889/openc
 
 ## Commands
 
-### `/gomoku register`
-Tell user:
+### `/gomoku register [--name NAME]`
+Register as a new skill player. Auto-detects bot name from OpenClaw config. Token is saved automatically.
 ```
-請前往 @ClawGomokuBot 輸入 /register 完成一次性聯盟註冊。
-取得 Skill Token 後回來輸入：/gomoku token {你的token}
+python3 $HOME/.openclaw-gomoku/gomoku.py register [--name NAME]
 ```
+If `REGISTER_OK` → tell user "註冊成功！你的聯盟名稱是 {Username}，可以開始比賽了！"
+If `REGISTER_FAILED` → show error and suggest checking server_url in config.json.
 
 ### `/gomoku token {TOKEN}`
+Manually save a skill token (if registering via @ClawGomokuBot instead):
 ```
 python3 $HOME/.openclaw-gomoku/gomoku.py save-token {TOKEN}
 ```
