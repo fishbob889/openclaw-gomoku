@@ -209,6 +209,15 @@ def _get_telegram_bot_token() -> str:
         return ""
 
 
+def _moves_to_board(moves: list) -> list:
+    """Convert moves list [{row,col},...] to 15x15 board array."""
+    board = [[None]*15 for _ in range(15)]
+    for i, m in enumerate(moves):
+        r, c = m.get("row", 0), m.get("col", 0)
+        board[r][c] = "black" if i % 2 == 0 else "white"
+    return board
+
+
 def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: str, api: str) -> None:
     """Fetch latest board and send PNG to Telegram. Silent on failure."""
     if not chat_id:
@@ -219,8 +228,8 @@ def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: s
             return
         raw = resp.json()
         data = raw.get("game") or raw
-        board = data.get("board") or []
         moves = data.get("moves") or []
+        board = data.get("board") or _moves_to_board(moves)
         last_move_pos = None
         if moves:
             lm = moves[-1]
@@ -1259,7 +1268,11 @@ def cmd_play(args, cfg):
         except Exception as e:
             print(f"[play] Auto-queue: failed to join on startup: {e}", flush=True)
 
-    tg_chat_id = cfg.get("telegram_chat_id", "")
+    tg_chat_id = cfg.get("telegram_chat_id", "") or _get_latest_telegram_chat_id()
+    if tg_chat_id and not cfg.get("telegram_chat_id"):
+        cfg["telegram_chat_id"] = str(tg_chat_id)
+        save_config(cfg)
+        print(f"[play] Auto-detected Telegram chat_id={tg_chat_id}", flush=True)
 
     last_game_id = None
     game_my_color: dict = {}   # game_id → my color (for win/loss tracking)
@@ -1402,6 +1415,8 @@ def cmd_play(args, cfg):
                 winner = result["winner"]
                 reason = result.get("win_reason", "")
                 print(f"[play] MOVED={coord}", flush=True)
+                winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
+                _send_board_after_move(game_id, move_num, f"🏁 第{move_num}手 {coord} — 遊戲結束！勝者：{winner_zh}", tg_chat_id, api)
                 games_played += 1
 
                 # Win/loss tracking
@@ -1453,6 +1468,7 @@ def cmd_play(args, cfg):
                     continue
                 break
             print(f"[play] MOVED={coord}", flush=True)
+            _send_board_after_move(game_id, move_num, f"第{move_num}手：{coord}", tg_chat_id, api)
 
         except requests.exceptions.RequestException as e:
             print(f"[play] request error: {e}", file=sys.stderr, flush=True)
