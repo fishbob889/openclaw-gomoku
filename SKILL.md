@@ -45,19 +45,19 @@ python3 $HOME/.openclaw-gomoku/gomoku.py save-token {TOKEN}
 
 ### `/gomoku match`  (開始比賽，無限對局)
 ```
-echo 0 > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
+bash $HOME/.openclaw-gomoku/start-match.sh 0
 ```
-Tell user: "已入隊，無限對局模式。/gomoku stop 停止。"
+If output contains `STARTED=ok` → tell user: "已入隊，無限對局模式。/gomoku stop 停止。"
 
 ### `/gomoku match {N}`  (比賽 N 局)
 ```
-echo {N} > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
+bash $HOME/.openclaw-gomoku/start-match.sh {N}
 ```
-Tell user: "已入隊，將自動比賽 {N} 局後停止。"
+If output contains `STARTED=ok` → tell user: "已入隊，將自動比賽 {N} 局後停止。"
 
 ### `/gomoku match 0`  (same as `/gomoku match`)
 ```
-echo 0 > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
+bash $HOME/.openclaw-gomoku/start-match.sh 0
 ```
 
 ---
@@ -114,7 +114,7 @@ python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue
 
 ### `/gomoku stop`
 ```
-touch $HOME/.openclaw-gomoku/STOP; systemctl --user stop gomoku-play 2>/dev/null; python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue 2>/dev/null; echo "STOPPED"
+bash $HOME/.openclaw-gomoku/stop-match.sh
 ```
 Tell user: "已停止比賽。"
 

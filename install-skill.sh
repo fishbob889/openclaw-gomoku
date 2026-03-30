@@ -119,32 +119,44 @@ print('已更新設定檔中的 active_strategy')
 "
 fi
 
-# ── 7. Create systemd user service ─────────────────────────────────────────────
-info "建立 systemd 使用者服務..."
-mkdir -p "$HOME/.config/systemd/user"
-cat > "$HOME/.config/systemd/user/gomoku-play.service" <<SVCEOF
-[Unit]
-Description=Gomoku Play Loop
+# ── 7. Create start/stop scripts ──────────────────────────────────────────────
+info "建立啟動/停止腳本..."
 
-[Service]
-Type=simple
-WorkingDirectory=$GOMOKU_DIR
-ExecStart=$(which python3) -u $GOMOKU_DIR/gomoku.py play --auto-queue
-ExecStop=$(which python3) $GOMOKU_DIR/gomoku.py leave-queue
-Restart=no
-StandardOutput=append:/tmp/gomoku-play.log
-StandardError=append:/tmp/gomoku-play.log
+cat > "$GOMOKU_DIR/start-match.sh" <<'SHEOF'
+#!/bin/bash
+N="${1:-0}"
+echo "$N" > ~/.openclaw-gomoku/MAX_GAMES
+rm -f ~/.openclaw-gomoku/STOP /tmp/gomoku-play.log
+pkill -f "gomoku.py play" 2>/dev/null
+sleep 1
+setsid python3 -u ~/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 &
+sleep 2
+if pgrep -f "gomoku.py play" > /dev/null 2>&1; then
+  ACTUAL_PID=$(pgrep -f "gomoku.py play" | head -1)
+  echo "STARTED=ok PID=$ACTUAL_PID"
+  head -3 /tmp/gomoku-play.log 2>/dev/null
+else
+  echo "STARTED=failed"
+  cat /tmp/gomoku-play.log 2>/dev/null
+fi
+SHEOF
+chmod +x "$GOMOKU_DIR/start-match.sh"
 
-[Install]
-WantedBy=default.target
-SVCEOF
+cat > "$GOMOKU_DIR/stop-match.sh" <<'SHEOF'
+#!/bin/bash
+touch ~/.openclaw-gomoku/STOP
+pkill -f "gomoku.py play" 2>/dev/null
+python3 ~/.openclaw-gomoku/gomoku.py leave-queue 2>/dev/null
+sleep 1
+if pgrep -f "gomoku.py play" > /dev/null 2>&1; then
+  echo "STOPPED=failed"
+else
+  echo "STOPPED=ok"
+fi
+SHEOF
+chmod +x "$GOMOKU_DIR/stop-match.sh"
 
-# Reload systemd user daemon
-systemctl --user daemon-reload 2>/dev/null || true
-ok "systemd 服務已建立 (gomoku-play.service)"
-
-# Enable lingering so user services run without login
-loginctl enable-linger "$(whoami)" 2>/dev/null || true
+ok "啟動/停止腳本已建立"
 
 # ── 8. Done ────────────────────────────────────────────────────────────────────
 echo ""
