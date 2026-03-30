@@ -95,7 +95,7 @@ COL_LABELS = "ABCDEFGHIJKLMNO"
 
 DEFAULT_CONFIG = {
     "skill_token": "",
-    "api_base": "https://fishbob-openclaw-api.fly.dev",
+    "api_base": "https://gomoku.candle.com.tw",
     "think_seconds": 10,
     "active_strategy": "",
     "wins": 0,

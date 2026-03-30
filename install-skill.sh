@@ -20,12 +20,14 @@ if ! command -v python3 &>/dev/null; then
   exit 1
 fi
 
-# Check requests library
-if ! python3 -c "import requests" 2>/dev/null; then
-  warn "requests library not found, installing..."
-  pip3 install requests --quiet || python3 -m pip install requests --quiet
-  ok "requests installed"
-fi
+# Check & install dependencies
+for pkg in requests Pillow; do
+  if ! python3 -c "import ${pkg,,}" 2>/dev/null && ! python3 -c "import PIL" 2>/dev/null; then
+    warn "$pkg not found, installing..."
+    pip3 install "$pkg" --quiet || python3 -m pip install "$pkg" --quiet
+  fi
+done
+ok "dependencies installed"
 
 # ── 2. Install SKILL.md ───────────────────────────────────────────────────────
 info "安裝 OpenClaw Skill..."
@@ -91,7 +93,8 @@ if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<EOF
 {
   "skill_token": "",
-  "api_base": "https://fishbob-openclaw-api.fly.dev",
+  "server_url": "https://gomoku.candle.com.tw",
+  "api_base": "https://gomoku.candle.com.tw",
   "think_seconds": 10,
   "active_strategy": "${CHOSEN_STYLE}",
   "trash": {
