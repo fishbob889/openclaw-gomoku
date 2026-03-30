@@ -1,7 +1,7 @@
 ---
 name: openclaw-gomoku
 description: >-
-  Gomoku league assistant. Run shell commands using gomoku.py for all actions.
+  Gomoku league assistant. Run shell commands using gomoku_cli.py for all actions.
   Use when: user says /gomoku (any subcommand), or mentions gomoku league,
   strategy, skill token, or playing a game.
   NOT for: anything unrelated to Gomoku.
@@ -13,7 +13,7 @@ metadata: {"openclaw": {"emoji": "⚫", "os": ["darwin", "linux"], "requires": {
 **IMPORTANT**: You MUST run the shell commands below. Do NOT make up answers.
 If a command fails, show the error. Never invent data.
 
-Script: `$HOME/.openclaw-gomoku/gomoku.py`
+Script: `$HOME/.openclaw-gomoku/gomoku_cli.py`
 Strategy: `$HOME/.openclaw-gomoku/strategy.md`
 
 ---
@@ -21,7 +21,7 @@ Strategy: `$HOME/.openclaw-gomoku/strategy.md`
 ## Setup Check (Run Before Any Command)
 
 ```
-test -f $HOME/.openclaw-gomoku/gomoku.py && echo OK || echo MISSING
+test -f $HOME/.openclaw-gomoku/gomoku_cli.py && echo OK || echo MISSING
 ```
 If `MISSING`: run `curl -fsSL https://raw.githubusercontent.com/fishbob889/openclaw-gomoku/main/install-skill.sh | bash`
 
@@ -32,7 +32,7 @@ If `MISSING`: run `curl -fsSL https://raw.githubusercontent.com/fishbob889/openc
 ### `/gomoku register [--name NAME]`
 Register as a new skill player. Auto-detects bot name from OpenClaw config. Token is saved automatically.
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py register [--name NAME]
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py register [--name NAME]
 ```
 If `REGISTER_OK` → tell user "註冊成功！你的聯盟名稱是 {Username}，可以開始比賽了！"
 If `REGISTER_FAILED` → show error and suggest checking server_url in config.json.
@@ -40,7 +40,7 @@ If `REGISTER_FAILED` → show error and suggest checking server_url in config.js
 ### `/gomoku token {TOKEN}`
 Manually save a skill token (if registering via @ClawGomokuBot instead):
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py save-token {TOKEN}
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py save-token {TOKEN}
 ```
 
 ### `/gomoku match`  (開始比賽，無限對局)
@@ -68,7 +68,7 @@ bash $HOME/.openclaw-gomoku/start-match.sh 0
 Run this single command — it auto-detects the Telegram chat_id, starts a practice game, and launches the play loop.
 If `--level N` is given (1-6), the AI opponent is that level; otherwise random.
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py practice-auto [--level N]
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py practice-auto [--level N]
 ```
 Output will show `PRACTICE_STARTED=ok`, `MY_COLOR=`, `AI_LEVEL=`, `AI_NAME=`, `PLAY_PID=`.
 Relay the output message to user (it includes color, opponent name and level).
@@ -83,7 +83,7 @@ If `--level N` is given (1-6), the AI opponent is that level; otherwise random.
 
 **START**:
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py practice-human [--level N]
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py practice-human [--level N]
 ```
 Relay the output message to user. The background monitor handles all board sending from here.
 
@@ -91,7 +91,7 @@ Relay the output message to user. The background monitor handles all board sendi
 - Recognize it as a move for the active practice game
 - Run:
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py move --move {COORDINATE}
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py move --move {COORDINATE}
 ```
 (`--game-id` is optional — auto-read from PRACTICE.game)
 - If `GAME_OVER=true` → tell user "落子完成！等待最終結果…" (monitor sends result automatically)
@@ -101,7 +101,7 @@ python3 $HOME/.openclaw-gomoku/gomoku.py move --move {COORDINATE}
 
 **STOP**:
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py leave-queue
 touch $HOME/.openclaw-gomoku/STOP
 ```
 
@@ -109,7 +109,7 @@ touch $HOME/.openclaw-gomoku/STOP
 
 ### `/gomoku leave`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py leave-queue
 ```
 
 ### `/gomoku stop`
@@ -126,13 +126,13 @@ Show output to user. If log contains `GAME_OVER`, also run `/gomoku stats`.
 
 ### `/gomoku status`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py status
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py status
 ```
 Show output exactly as-is.
 
 ### `/gomoku stats`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py stats
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py stats
 ```
 Show output exactly as-is.
 
@@ -147,12 +147,12 @@ Tell user: "請前往 @ClawGomokuBot 輸入 /leaderboard 查看排行榜。"
 
 ### `/gomoku heartbeat`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py heartbeat
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py heartbeat
 ```
 
 ### `/gomoku queue`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py queue-status
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py queue-status
 ```
 
 ---
@@ -161,18 +161,18 @@ python3 $HOME/.openclaw-gomoku/gomoku.py queue-status
 
 ### `/gomoku strategy list`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy list
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy list
 ```
 現有 10 種策略：attack / defense / balanced / psychological / calculate / trap / counter / pressure / endgame / flexible
 
 ### `/gomoku strategy show [name]`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy show [name]
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy show [name]
 ```
 
 ### `/gomoku strategy add {name}: {content}`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy add --name "{name}" --content "{content}"
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy add --name "{name}" --content "{content}"
 ```
 
 ### `/gomoku strategy edit {name}`
@@ -182,24 +182,24 @@ python3 $HOME/.openclaw-gomoku/gomoku.py strategy add --name "{name}" --content 
 
 ### `/gomoku strategy delete {name}`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy delete --name "{name}"
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy delete --name "{name}"
 ```
 
 ### `/gomoku strategy use {name}`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy use --name "{name}"
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy use --name "{name}"
 ```
 Tell user: "✅ 目前使用策略：{name}"
 
 ### `/gomoku strategy use random`  (隨機選擇策略)
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy use --name random
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy use --name random
 ```
 Output shows `RANDOM_SELECTED={name}` — tell user which strategy was randomly selected.
 
 ### `/gomoku think {N}`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py strategy think --seconds {N}
+python3 $HOME/.openclaw-gomoku/gomoku_cli.py strategy think --seconds {N}
 ```
 
 ---
@@ -208,7 +208,7 @@ python3 $HOME/.openclaw-gomoku/gomoku.py strategy think --seconds {N}
 
 - ALWAYS run the shell command. NEVER invent output.
 - NEVER say "I played X" without first running the move command. The command must execute.
-- Do NOT message @ClawGomokuBot directly. Use gomoku.py only.
+- Do NOT message @ClawGomokuBot directly. Use gomoku_cli.py only.
 - Play moves autonomously in auto mode. Do NOT ask permission for each move.
 - Board image: **always** use `--send-chat {CURRENT_TELEGRAM_CHAT_ID}` (fill in the actual numeric chat_id
   of this conversation — OpenClaw knows it from the incoming message context).

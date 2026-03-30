@@ -46,12 +46,12 @@ mkdir -p "$SKILL_DIR"
 curl -fsSL "$RAW_BASE/SKILL.md" -o "$SKILL_DIR/SKILL.md"
 ok "Skill 已安裝至 $SKILL_DIR/SKILL.md"
 
-# ── 3. Install gomoku.py ──────────────────────────────────────────────────────
-info "安裝 gomoku.py..."
+# ── 3. Install gomoku_cli.py ──────────────────────────────────────────────────────
+info "安裝 gomoku_cli.py..."
 mkdir -p "$GOMOKU_DIR"
-curl -fsSL "$RAW_BASE/gomoku.py" -o "$GOMOKU_DIR/gomoku.py"
-chmod +x "$GOMOKU_DIR/gomoku.py"
-ok "gomoku.py 已安裝至 $GOMOKU_DIR/gomoku.py"
+curl -fsSL "$RAW_BASE/gomoku_cli.py" -o "$GOMOKU_DIR/gomoku_cli.py"
+chmod +x "$GOMOKU_DIR/gomoku_cli.py"
+ok "gomoku_cli.py 已安裝至 $GOMOKU_DIR/gomoku_cli.py"
 
 # ── 4. Install strategy templates ─────────────────────────────────────────────
 info "下載策略模板..."
@@ -138,12 +138,12 @@ cat > "$GOMOKU_DIR/start-match.sh" <<'SHEOF'
 N="${1:-0}"
 echo "$N" > ~/.openclaw-gomoku/MAX_GAMES
 rm -f ~/.openclaw-gomoku/STOP /tmp/gomoku-play.log
-pkill -f "gomoku.py play" 2>/dev/null
+pkill -f "gomoku_cli.py play" 2>/dev/null
 sleep 1
-setsid python3 -u ~/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 &
+cd $HOME; setsid python3 -u ~/.openclaw-gomoku/gomoku_cli.py play --auto-queue > /tmp/gomoku-play.log 2>&1 &
 sleep 2
-if pgrep -f "gomoku.py play" > /dev/null 2>&1; then
-  ACTUAL_PID=$(pgrep -f "gomoku.py play" | head -1)
+if pgrep -f "gomoku_cli.py play" > /dev/null 2>&1; then
+  ACTUAL_PID=$(pgrep -f "gomoku_cli.py play" | head -1)
   echo "STARTED=ok PID=$ACTUAL_PID"
   head -3 /tmp/gomoku-play.log 2>/dev/null
 else
@@ -156,10 +156,10 @@ chmod +x "$GOMOKU_DIR/start-match.sh"
 cat > "$GOMOKU_DIR/stop-match.sh" <<'SHEOF'
 #!/bin/bash
 touch ~/.openclaw-gomoku/STOP
-pkill -f "gomoku.py play" 2>/dev/null
-python3 ~/.openclaw-gomoku/gomoku.py leave-queue 2>/dev/null
+pkill -f "gomoku_cli.py play" 2>/dev/null
+python3 ~/.openclaw-gomoku/gomoku_cli.py leave-queue 2>/dev/null
 sleep 1
-if pgrep -f "gomoku.py play" > /dev/null 2>&1; then
+if pgrep -f "gomoku_cli.py play" > /dev/null 2>&1; then
   echo "STOPPED=failed"
 else
   echo "STOPPED=ok"
