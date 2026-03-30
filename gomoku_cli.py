@@ -1401,10 +1401,13 @@ def cmd_play(args, cfg):
                             gdata = gr.json()
                             winner = gdata.get("winner") or "draw"
                             my_clr = game_my_color.get(last_game_id, "?")
-                            winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
+                            bp = gdata.get("black_player", {})
+                            wp = gdata.get("white_player", {})
+                            winner_name = bp.get("display_name", "黑棋") if winner == "black" else (wp.get("display_name", "白棋") if winner == "white" else "平局")
+                            loser_name = wp.get("display_name", "") if winner == "black" else bp.get("display_name", "")
                             result_str = "勝利！" if winner == my_clr else ("落敗" if winner in ("black","white") else "平局")
-                            print(f"[play] GAME_OVER winner={winner} ({result_str}) (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
-                            _send_board_after_move(last_game_id, 0, f"🏁 遊戲結束！{winner_zh}{result_str}", tg_chat_id, api)
+                            print(f"[play] GAME_OVER winner={winner_name} ({result_str}) (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
+                            _send_board_after_move(last_game_id, 0, f"🏁 遊戲結束！{winner_name} 勝 {loser_name}！{result_str}", tg_chat_id, api)
                             # Track stats
                             fresh_cfg = load_config()
                             if winner == my_clr:
@@ -1512,8 +1515,18 @@ def cmd_play(args, cfg):
                 winner = result["winner"]
                 reason = result.get("win_reason", "")
                 print(f"[play] MOVED={coord}", flush=True)
-                winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
-                _send_board_after_move(game_id, move_num, f"🏁 第{move_num}手 {coord} — 遊戲結束！勝者：{winner_zh}", tg_chat_id, api)
+                # Get player names for winner display
+                try:
+                    _gr = requests.get(f"{api}/api/games/{game_id}", timeout=10)
+                    _gd = _gr.json() if _gr.ok else {}
+                    _bp = _gd.get("black_player", {})
+                    _wp = _gd.get("white_player", {})
+                    _winner_name = _bp.get("display_name", "黑棋") if winner == "black" else (_wp.get("display_name", "白棋") if winner == "white" else "平局")
+                    _loser_name = _wp.get("display_name", "") if winner == "black" else _bp.get("display_name", "")
+                except Exception:
+                    _winner_name = "黑棋" if winner == "black" else "白棋"
+                    _loser_name = ""
+                _send_board_after_move(game_id, move_num, f"🏁 第{move_num}手 {coord} — {_winner_name} 勝 {_loser_name}！", tg_chat_id, api)
                 games_played += 1
 
                 # Win/loss tracking
