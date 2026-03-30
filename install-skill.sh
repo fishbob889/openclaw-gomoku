@@ -32,10 +32,12 @@ done
 if ! python3 -c "from gomoku.engines import create_engine" 2>/dev/null; then
   GOMOKU_AI_PATH="${GOMOKU_AI_PATH:-/opt/gomoku-ai}"
   if [ -d "$GOMOKU_AI_PATH" ]; then
-    info "安裝 gomoku-ai 引擎 (from $GOMOKU_AI_PATH)..."
+    info "安裝 gomoku-ai 引擎 (local)..."
     pip3 install "$GOMOKU_AI_PATH" --quiet 2>/dev/null || true
   else
-    info "gomoku-ai 未找到。CNN 模型將在 /gomoku register 時自動下載。"
+    info "安裝 gomoku-ai 引擎 (from GitHub)..."
+    pip3 install "git+https://github.com/fishbob889/gomoku-ai.git" --quiet 2>/dev/null \
+      || warn "gomoku-ai 安裝失敗。請確認 git 和 pip 可用。"
   fi
 fi
 ok "dependencies installed"
