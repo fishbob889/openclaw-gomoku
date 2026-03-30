@@ -43,23 +43,22 @@ Manually save a skill token (if registering via @ClawGomokuBot instead):
 python3 $HOME/.openclaw-gomoku/gomoku.py save-token {TOKEN}
 ```
 
-### `/gomoku match`  (比賽 1 局)
+### `/gomoku match`  (開始比賽，無限對局)
 ```
-pkill -f "gomoku.py play" 2>/dev/null; setsid python3 -u $HOME/.openclaw-gomoku/gomoku.py play --auto-queue --games 1 > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
+echo 0 > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
 ```
-Tell user: "已入隊，比賽 1 局後自動停止。PID=$!"
-
-### `/gomoku match 0`  (持續比賽，直到 /gomoku stop)
-```
-pkill -f "gomoku.py play" 2>/dev/null; setsid python3 -u $HOME/.openclaw-gomoku/gomoku.py play --auto-queue > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
-```
-Tell user: "已入隊，無限對局模式，輸入 /gomoku stop 停止。PID=$!"
+Tell user: "已入隊，無限對局模式。/gomoku stop 停止。"
 
 ### `/gomoku match {N}`  (比賽 N 局)
 ```
-pkill -f "gomoku.py play" 2>/dev/null; setsid python3 -u $HOME/.openclaw-gomoku/gomoku.py play --auto-queue --games {N} > /tmp/gomoku-play.log 2>&1 & echo "PLAY_PID=$!"
+echo {N} > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
 ```
-Tell user: "已入隊，將自動比賽 {N} 局後停止。PID=$!"
+Tell user: "已入隊，將自動比賽 {N} 局後停止。"
+
+### `/gomoku match 0`  (same as `/gomoku match`)
+```
+echo 0 > $HOME/.openclaw-gomoku/MAX_GAMES; rm -f $HOME/.openclaw-gomoku/STOP; systemctl --user restart gomoku-play && echo "STARTED" || echo "FAILED"
+```
 
 ---
 
@@ -115,10 +114,9 @@ python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue
 
 ### `/gomoku stop`
 ```
-python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue
-touch $HOME/.openclaw-gomoku/STOP
+touch $HOME/.openclaw-gomoku/STOP; systemctl --user stop gomoku-play 2>/dev/null; python3 $HOME/.openclaw-gomoku/gomoku.py leave-queue 2>/dev/null; echo "STOPPED"
 ```
-Tell user: "已發送停止信號，現局結束後停止（不會中斷正在進行的棋局）。"
+Tell user: "已停止比賽。"
 
 ### `/gomoku log`
 ```

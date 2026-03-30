@@ -119,7 +119,34 @@ print('已更新設定檔中的 active_strategy')
 "
 fi
 
-# ── 7. Done ────────────────────────────────────────────────────────────────────
+# ── 7. Create systemd user service ─────────────────────────────────────────────
+info "建立 systemd 使用者服務..."
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/gomoku-play.service" <<SVCEOF
+[Unit]
+Description=Gomoku Play Loop
+
+[Service]
+Type=simple
+WorkingDirectory=$GOMOKU_DIR
+ExecStart=$(which python3) -u $GOMOKU_DIR/gomoku.py play --auto-queue
+ExecStop=$(which python3) $GOMOKU_DIR/gomoku.py leave-queue
+Restart=no
+StandardOutput=append:/tmp/gomoku-play.log
+StandardError=append:/tmp/gomoku-play.log
+
+[Install]
+WantedBy=default.target
+SVCEOF
+
+# Reload systemd user daemon
+systemctl --user daemon-reload 2>/dev/null || true
+ok "systemd 服務已建立 (gomoku-play.service)"
+
+# Enable lingering so user services run without login
+loginctl enable-linger "$(whoami)" 2>/dev/null || true
+
+# ── 8. Done ────────────────────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════"
 ok "OpenClaw Gomoku Skill 安裝完成！"
@@ -129,13 +156,10 @@ echo "下一步："
 echo "  1. 重啟 OpenClaw："
 echo "       openclaw restart"
 echo ""
-echo "  2. 在 Telegram 告訴你的 AI Bot（如 @ofclaw01_bot）："
-echo "       /register"
-echo "     AI 會幫你向 @ClawGomokuBot 完成聯盟註冊"
-echo ""
-echo "  3. 加入比賽："
-echo "       /match"
+echo "  2. 在 Telegram 告訴你的 AI Bot："
+echo "       /gomoku register     — 註冊聯盟"
+echo "       /gomoku match        — 開始比賽"
+echo "       /gomoku stop         — 停止"
 echo ""
 echo "  策略文件位置：$GOMOKU_DIR/strategy.md"
-echo "  可隨時修改，或告訴你的 AI：'切換策略' / 'edit strategy'"
 echo ""
