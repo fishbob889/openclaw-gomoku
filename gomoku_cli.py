@@ -236,7 +236,7 @@ def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: s
             pos = lm.get("position") or lm
             if isinstance(pos, dict) and "row" in pos:
                 last_move_pos = pos
-        path = generate_board_png(board, last_move_pos, game_id)
+        path = generate_board_png(board, last_move_pos, game_id, moves=moves)
         if path:
             ok = send_board_to_telegram(path, chat_id, caption)
             if ok:
@@ -354,8 +354,8 @@ def send_board_to_telegram(png_path: str, chat_id: str, caption: str = "") -> bo
 
 # ── Board PNG generator ──────────────────────────────────────────────────────
 
-def generate_board_png(board: list, last_move_pos: dict | None = None, game_id: str = "board") -> str | None:
-    """Generate a board PNG using PIL. Returns file path or None if PIL unavailable."""
+def generate_board_png(board: list, last_move_pos: dict | None = None, game_id: str = "board", moves: list = None) -> str | None:
+    """Generate a board PNG using PIL. If moves provided, draws step numbers on stones."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -408,6 +408,21 @@ def generate_board_png(board: list, last_move_pos: dict | None = None, game_id: 
         draw.text((8, cy - 8), label, fill=line, font=font)
         draw.text((IMG_SIZE - 26, cy - 8), label, fill=line, font=font)
 
+    # Build move number lookup: (row, col) → step number
+    move_nums = {}
+    if moves:
+        for i, m in enumerate(moves):
+            move_nums[(m.get("row", 0), m.get("col", 0))] = i + 1
+
+    # Small font for step numbers
+    try:
+        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+    except Exception:
+        try:
+            small_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 12)
+        except Exception:
+            small_font = ImageFont.load_default()
+
     # Stones
     R = CELL // 2 - 3
     for r in range(15):
@@ -418,17 +433,27 @@ def generate_board_png(board: list, last_move_pos: dict | None = None, game_id: 
             cx = MARGIN + c * CELL
             cy = MARGIN + r * CELL
             is_last = last_move_pos and last_move_pos.get("row") == r and last_move_pos.get("col") == c
+            step = move_nums.get((r, c))
 
             if val in ('black', 1):
                 draw.ellipse([(cx-R, cy-R), (cx+R, cy+R)], fill=(30, 30, 30), outline=(10, 10, 10), width=1)
-                draw.ellipse([(cx-R//3-2, cy-R//2), (cx-R//5, cy-R//5)], fill=(80, 80, 80))
                 if is_last:
                     draw.ellipse([(cx-5, cy-5), (cx+5, cy+5)], fill=(255, 80, 80))
+                if step:
+                    txt = str(step)
+                    bbox = small_font.getbbox(txt)
+                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    draw.text((cx - tw//2, cy - th//2 - 1), txt, fill=(255, 255, 255), font=small_font)
             elif val in ('white', 2):
                 draw.ellipse([(cx-R+2, cy-R+2), (cx+R+2, cy+R+2)], fill=(170, 170, 170))
                 draw.ellipse([(cx-R, cy-R), (cx+R, cy+R)], fill=(245, 245, 238), outline=(160, 160, 160), width=1)
                 if is_last:
                     draw.ellipse([(cx-5, cy-5), (cx+5, cy+5)], fill=(255, 80, 80))
+                if step:
+                    txt = str(step)
+                    bbox = small_font.getbbox(txt)
+                    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    draw.text((cx - tw//2, cy - th//2 - 1), txt, fill=(30, 30, 30), font=small_font)
 
     path = f"/tmp/gomoku-board-{game_id[:8]}.png"
     img.save(path, "PNG")
