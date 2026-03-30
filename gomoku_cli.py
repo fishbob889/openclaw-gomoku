@@ -1393,7 +1393,33 @@ def cmd_play(args, cfg):
                 if last_game_id:
                     games_played += 1
                     _dmax = check_dynamic_max()
-                    print(f"[play] Game {last_game_id[:8]} ended. (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
+                    # Query game result
+                    winner = "?"
+                    try:
+                        gr = requests.get(f"{api}/api/games/{last_game_id}", timeout=10)
+                        if gr.ok:
+                            gdata = gr.json()
+                            winner = gdata.get("winner") or "draw"
+                            my_clr = game_my_color.get(last_game_id, "?")
+                            winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
+                            result_str = "勝利！" if winner == my_clr else ("落敗" if winner in ("black","white") else "平局")
+                            print(f"[play] GAME_OVER winner={winner} ({result_str}) (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
+                            _send_board_after_move(last_game_id, 0, f"🏁 遊戲結束！{winner_zh}{result_str}", tg_chat_id, api)
+                            # Track stats
+                            fresh_cfg = load_config()
+                            if winner == my_clr:
+                                fresh_cfg["wins"] = fresh_cfg.get("wins", 0) + 1
+                            elif winner in ("black", "white"):
+                                fresh_cfg["losses"] = fresh_cfg.get("losses", 0) + 1
+                            else:
+                                fresh_cfg["draws"] = fresh_cfg.get("draws", 0) + 1
+                            save_config(fresh_cfg)
+                            cfg = fresh_cfg
+                            w, l, d = cfg.get("wins",0), cfg.get("losses",0), cfg.get("draws",0)
+                            print(f"[play] STATS wins={w} losses={l} draws={d}", flush=True)
+                    except Exception:
+                        print(f"[play] Game {last_game_id[:8]} ended. (局數 {games_played}/{_dmax if _dmax else '∞'})", flush=True)
+                    game_my_color.pop(last_game_id, None)
                     last_game_id = None
                     no_game_count = 0
                     if auto_queue:
