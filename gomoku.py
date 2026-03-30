@@ -214,7 +214,7 @@ def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: s
     if not chat_id:
         return
     try:
-        resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+        resp = requests.get(f"{api}/api/games/{game_id}", timeout=10)
         if not resp.ok:
             return
         raw = resp.json()
@@ -239,7 +239,7 @@ def _send_board_after_move(game_id: str, move_num: int, caption: str, chat_id: s
 def _call_surrender(game_id: str, api: str, headers: dict) -> bool:
     """Tell server to take over all remaining moves for this game."""
     try:
-        resp = requests.post(f"{api}/games/skill/{game_id}/surrender", headers=headers, timeout=10)
+        resp = requests.post(f"{api}/api/skill/surrender", headers=headers, timeout=10)
         return resp.ok
     except Exception as e:
         print(f"[surrender] error: {e}", file=sys.stderr)
@@ -252,7 +252,7 @@ def _spectate_until_done(game_id: str, my_color: str, opp_name: str,
     print(f"[spectate] watching game={game_id[:8]} until finish", flush=True)
     while True:
         try:
-            resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+            resp = requests.get(f"{api}/api/games/{game_id}", timeout=10)
             if not resp.ok:
                 time.sleep(2)
                 continue
@@ -434,7 +434,7 @@ def cmd_get_turn(args, cfg):
     headers = get_headers(cfg)
 
     try:
-        resp = requests.get(f"{api}/games/skill/my-turn", headers=headers, timeout=15)
+        resp = requests.get(f"{api}/api/skill/my-turn", headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
@@ -521,7 +521,7 @@ def cmd_move(args, cfg):
     # Submit move
     try:
         resp = requests.post(
-            f"{api}/games/skill/{game_id}/move",
+            f"{api}/api/skill/move",
             json={"position": position},
             headers=headers,
             timeout=15,
@@ -571,7 +571,7 @@ def cmd_heartbeat(args, cfg):
         if _resolved_avatar:
             body["avatar_url"] = _resolved_avatar
         resp = requests.post(
-            f"{api}/skill/heartbeat",
+            f"{api}/api/skill/heartbeat",
             json=body,
             headers=headers,
             timeout=10,
@@ -589,7 +589,7 @@ def cmd_status(args, cfg):
     headers = get_headers(cfg)
 
     try:
-        resp = requests.get(f"{api}/games/skill/my-turn", headers=headers, timeout=15)
+        resp = requests.get(f"{api}/api/skill/my-turn", headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
@@ -632,7 +632,7 @@ def cmd_join_queue(args, cfg):
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp = requests.post(f"{api}/api/skill/queue", headers=headers, timeout=10)
         resp.raise_for_status()
         print("QUEUE=joined")
         print("已加入配對佇列，等待對手中... 輪到你時 get-turn 會有回應。")
@@ -646,7 +646,7 @@ def cmd_leave_queue(args, cfg):
     api = get_api(cfg)
     headers = get_headers(cfg)
     try:
-        resp = requests.delete(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp = requests.delete(f"{api}/api/skill/queue", headers=headers, timeout=10)
         resp.raise_for_status()
         print("QUEUE=left")
         print("已離開配對佇列。")
@@ -660,7 +660,7 @@ def cmd_queue_status(args, cfg):
     api = get_api(cfg)
     headers = get_headers(cfg)
     try:
-        resp = requests.get(f"{api}/skill/queue", headers=headers, timeout=10)
+        resp = requests.get(f"{api}/api/skill/queue", headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         in_queue = data.get("inQueue", False)
@@ -753,7 +753,7 @@ def cmd_practice(args, cfg):
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
+        resp = requests.post(f"{api}/api/skill/practice", json={"level": level}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
@@ -838,7 +838,7 @@ def cmd_practice_auto(args, cfg):
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
+        resp = requests.post(f"{api}/api/skill/practice", json={"level": level}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
@@ -896,7 +896,7 @@ def cmd_practice_human(args, cfg):
     headers = get_headers(cfg)
     headers["Content-Type"] = "application/json"
     try:
-        resp = requests.post(f"{api}/skill/practice", json={"level": level}, headers=headers, timeout=15)
+        resp = requests.post(f"{api}/api/skill/practice", json={"level": level}, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except requests.exceptions.RequestException as e:
@@ -976,7 +976,7 @@ def _cmd_practice_human_loop(args, cfg):
             break
 
         try:
-            resp = requests.get(f"{api}/games/{game_id}", timeout=10)
+            resp = requests.get(f"{api}/api/games/{game_id}", timeout=10)
             if not resp.ok:
                 time.sleep(2)
                 continue
@@ -1064,7 +1064,7 @@ def cmd_board_image(args, cfg):
     send_chat = getattr(args, "send_chat", None) or cfg.get("telegram_chat_id", "")
 
     try:
-        resp = requests.get(f"{api}/games/{game_id}", timeout=15)
+        resp = requests.get(f"{api}/api/games/{game_id}", timeout=15)
         resp.raise_for_status()
         raw = resp.json()
     except requests.exceptions.RequestException as e:
@@ -1117,7 +1117,7 @@ def cmd_ai_move(args, cfg):
     move_headers["Content-Type"] = "application/json"
 
     try:
-        hint_resp = requests.get(f"{api}/games/skill/{game_id}/ai-hint", headers=headers, timeout=30)
+        hint_resp = requests.get(f"{api}/api/skill/{game_id}/ai-hint", headers=headers, timeout=30)
         hint_resp.raise_for_status()
         position = hint_resp.json().get("position")
     except requests.exceptions.RequestException as e:
@@ -1133,7 +1133,7 @@ def cmd_ai_move(args, cfg):
 
     try:
         move_resp = requests.post(
-            f"{api}/games/skill/{game_id}/move",
+            f"{api}/api/skill/move",
             json={"position": position},
             headers=move_headers,
             timeout=15,
@@ -1202,7 +1202,7 @@ def cmd_ai_hint(args, cfg):
 
     try:
         resp = requests.get(
-            f"{api}/games/skill/{game_id}/ai-hint",
+            f"{api}/api/skill/{game_id}/ai-hint",
             headers=headers,
             timeout=30,
         )
@@ -1254,7 +1254,7 @@ def cmd_play(args, cfg):
     # Auto-join queue on startup if auto_queue mode
     if auto_queue:
         try:
-            requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+            requests.post(f"{api}/api/skill/queue", headers=move_headers, timeout=10)
             print("[play] Auto-queue: joined matchmaking on startup.", flush=True)
         except Exception as e:
             print(f"[play] Auto-queue: failed to join on startup: {e}", flush=True)
@@ -1282,12 +1282,12 @@ def cmd_play(args, cfg):
     while True:
         try:
             # Poll for my turn
-            resp = requests.get(f"{api}/games/skill/my-turn", headers=headers, timeout=15)
+            resp = requests.get(f"{api}/api/skill/my-turn", headers=headers, timeout=15)
             resp.raise_for_status()
             data = resp.json()
-            game = data.get("game")
+            has_game = data.get("has_game", False)
 
-            if not game:
+            if not has_game:
                 if last_game_id:
                     games_played += 1
                     _dmax = check_dynamic_max()
@@ -1308,13 +1308,13 @@ def cmd_play(args, cfg):
                             no_rejoin = True
                             print(f"[play] STOP 旗標偵測，離開佇列，完成已配對對局後停止。", flush=True)
                             try:
-                                requests.delete(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                                requests.delete(f"{api}/api/skill/queue", headers=move_headers, timeout=10)
                             except Exception:
                                 pass
                             break  # NO_GAME already confirmed, safe to stop
                         print("[play] Auto-queue: rejoining matchmaking...", flush=True)
                         try:
-                            qr = requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                            qr = requests.post(f"{api}/api/skill/queue", headers=move_headers, timeout=10)
                             qr.raise_for_status()
                             print("[play] Joined queue. Waiting for match...", flush=True)
                         except Exception as e:
@@ -1331,26 +1331,28 @@ def cmd_play(args, cfg):
                 time.sleep(poll_interval)
                 continue
 
-            game_id = game["id"]
+            game_id = data["game_id"]
             last_game_id = game_id
-            board = game["board"]
-            moves = game.get("moves", [])
-            color = game.get("currentPlayer", "")
-            names = game.get("playerNames", {})
-            models = game.get("playerModels", {})
-            is_practice = game.get("isPractice", False)
-            move_num = len(moves) + 1
+            moves = data.get("moves", [])
+            color = data.get("my_color", "black")
+            is_my_turn = data.get("is_my_turn", False)
+            opp = data.get("opponent", {}) or {}
+            opp_name = opp.get("display_name", "opponent")
+            opp_model = opp.get("ai_model", "")
+            is_practice = False  # queue matches are league
+            move_num = data.get("turn_number", len(moves) + 1)
 
-            # Track my color and game type on first turn of each game
+            # Track my color on first turn of each game
             if game_id not in game_my_color:
                 game_my_color[game_id] = color
                 game_is_practice[game_id] = is_practice
 
-            opp_color = 'white' if color == 'black' else 'black'
-            opp_name = names.get(opp_color, 'opponent')
-            opp_model = models.get(opp_color, '') or ''
-            game_type = 'PRACTICE' if is_practice else 'LEAGUE'
-            print(f"[play] {game_type} GAME={game_id[:8]} COLOR={color} TURN={move_num} "
+            # Wait if it's not our turn
+            if not is_my_turn:
+                time.sleep(poll_interval)
+                continue
+
+            print(f"[play] LEAGUE GAME={game_id[:8]} COLOR={color} TURN={move_num} "
                   f"vs {opp_name}" + (f" ({opp_model})" if opp_model else ""), flush=True)
 
             # Check STOP during practice — surrender immediately, then spectate
@@ -1364,61 +1366,57 @@ def cmd_play(args, cfg):
                 PRACTICE_PID_FILE.unlink(missing_ok=True)
                 break
 
-            # Get server AI hint
-            hint_resp = requests.get(
-                f"{api}/games/skill/{game_id}/ai-hint",
-                headers=headers,
-                timeout=30,
-            )
-            hint_resp.raise_for_status()
-            hint_data = hint_resp.json()
-            position = hint_data.get("position")
-
-            if not position:
-                print("[play] ERROR: no position from ai-hint, skipping", flush=True)
-                time.sleep(poll_interval)
-                continue
-
-            coord = pos_to_coord(position["row"], position["col"])
+            # Pick a move: center bias + adjacent to existing stones
+            import random as _rng
+            occupied = set()
+            for m in moves:
+                occupied.add((m["row"], m["col"]))
+            # Find legal moves near existing stones
+            candidates = []
+            for r, c in occupied:
+                for dr in range(-2, 3):
+                    for dc in range(-2, 3):
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < 15 and 0 <= nc < 15 and (nr, nc) not in occupied:
+                            candidates.append((nr, nc))
+            if not candidates:
+                candidates = [(7, 7)]  # center
+            candidates = list(set(candidates))
+            # Prefer center-ish moves
+            candidates.sort(key=lambda p: abs(p[0]-7) + abs(p[1]-7))
+            pick = candidates[0] if len(candidates) <= 3 else _rng.choice(candidates[:5])
+            coord = pos_to_coord(pick[0], pick[1])
             print(f"[play] → submitting move {coord}", flush=True)
 
             # Submit move
             move_resp = requests.post(
-                f"{api}/games/skill/{game_id}/move",
-                json={"position": position},
+                f"{api}/api/skill/move",
+                json={"row": pick[0], "col": pick[1]},
                 headers=move_headers,
                 timeout=15,
             )
             move_resp.raise_for_status()
             result = move_resp.json()
 
-            ai_moved = result.get("aiMoved")
-            ai_coord = pos_to_coord(ai_moved["row"], ai_moved["col"]) if ai_moved else None
-            if result.get("finished"):
-                gr = result.get("gameResult", {})
-                winner = gr.get("winner", "?")
-                reason = gr.get("reason", "")
-                ai_suffix = f" | opponent auto-moved {ai_coord}" if ai_coord else ""
-                print(f"[play] MOVED={coord}{ai_suffix}", flush=True)
-                winner_zh = "黑棋" if winner == "black" else ("白棋" if winner == "white" else "平局")
-                _send_board_after_move(game_id, move_num, f"🏁 第{move_num}手 {coord} — 遊戲結束！勝者：{winner_zh}", tg_chat_id, api)
+            if result.get("winner"):
+                winner = result["winner"]
+                reason = result.get("win_reason", "")
+                print(f"[play] MOVED={coord}", flush=True)
                 games_played += 1
 
-                # Win/loss tracking (skip practice games)
+                # Win/loss tracking
                 my_clr = game_my_color.pop(game_id, color)
-                is_prac = game_is_practice.pop(game_id, False)
-                if not is_prac:
-                    fresh_cfg = load_config()
-                    if winner == my_clr:
-                        fresh_cfg["wins"] = fresh_cfg.get("wins", 0) + 1
-                    elif winner in ("black", "white"):
-                        fresh_cfg["losses"] = fresh_cfg.get("losses", 0) + 1
-                    else:
-                        fresh_cfg["draws"] = fresh_cfg.get("draws", 0) + 1
-                    save_config(fresh_cfg)
-                    cfg = fresh_cfg
-                    w, l, d = cfg.get("wins",0), cfg.get("losses",0), cfg.get("draws",0)
-                    print(f"[play] STATS wins={w} losses={l} draws={d}", flush=True)
+                fresh_cfg = load_config()
+                if winner == my_clr:
+                    fresh_cfg["wins"] = fresh_cfg.get("wins", 0) + 1
+                elif winner in ("black", "white"):
+                    fresh_cfg["losses"] = fresh_cfg.get("losses", 0) + 1
+                else:
+                    fresh_cfg["draws"] = fresh_cfg.get("draws", 0) + 1
+                save_config(fresh_cfg)
+                cfg = fresh_cfg
+                w, l, d = cfg.get("wins",0), cfg.get("losses",0), cfg.get("draws",0)
+                print(f"[play] STATS wins={w} losses={l} draws={d}", flush=True)
 
                 print(f"[play] GAME_OVER winner={winner} reason={reason} (局數 {games_played}/{max_games if max_games else '∞'})", flush=True)
                 last_game_id = None
@@ -1434,7 +1432,7 @@ def cmd_play(args, cfg):
                         no_rejoin = True
                         print(f"[play] STOP 旗標偵測，離開佇列，繼續 poll 確認無待下對局後停止。", flush=True)
                         try:
-                            requests.delete(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                            requests.delete(f"{api}/api/skill/queue", headers=move_headers, timeout=10)
                         except Exception:
                             pass
                         # Don't rejoin — continue polling to finish any already-matched game
@@ -1446,7 +1444,7 @@ def cmd_play(args, cfg):
                         continue
                     print("[play] Auto-queue: rejoining matchmaking...", flush=True)
                     try:
-                        qr = requests.post(f"{api}/skill/queue", headers=move_headers, timeout=10)
+                        qr = requests.post(f"{api}/api/skill/queue", headers=move_headers, timeout=10)
                         qr.raise_for_status()
                         print("[play] Joined queue. Waiting for next match...", flush=True)
                     except Exception as e:
@@ -1454,9 +1452,7 @@ def cmd_play(args, cfg):
                     time.sleep(poll_interval)
                     continue
                 break
-            print(f"[play] MOVED={coord}" + (f" | opponent auto-moved {ai_coord}" if ai_coord else ""), flush=True)
-            caption = f"第{move_num}手：{coord}" + (f" → {ai_coord}" if ai_coord else "")
-            _send_board_after_move(game_id, move_num, caption, tg_chat_id, api)
+            print(f"[play] MOVED={coord}", flush=True)
 
         except requests.exceptions.RequestException as e:
             print(f"[play] request error: {e}", file=sys.stderr, flush=True)
