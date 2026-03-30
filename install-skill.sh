@@ -27,6 +27,17 @@ for pkg in requests Pillow; do
     pip3 install "$pkg" --quiet || python3 -m pip install "$pkg" --quiet
   fi
 done
+
+# Install gomoku-ai engine (for CNN move computation)
+if ! python3 -c "from gomoku.engines import create_engine" 2>/dev/null; then
+  GOMOKU_AI_PATH="${GOMOKU_AI_PATH:-/opt/gomoku-ai}"
+  if [ -d "$GOMOKU_AI_PATH" ]; then
+    info "安裝 gomoku-ai 引擎 (from $GOMOKU_AI_PATH)..."
+    pip3 install "$GOMOKU_AI_PATH" --quiet 2>/dev/null || true
+  else
+    info "gomoku-ai 未找到。CNN 模型將在 /gomoku register 時自動下載。"
+  fi
+fi
 ok "dependencies installed"
 
 # ── 2. Install SKILL.md ───────────────────────────────────────────────────────

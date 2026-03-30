@@ -720,7 +720,7 @@ def cmd_register(args, cfg):
     try:
         resp = requests.post(
             f"{api}/api/skill/register",
-            json={"display_name": name, "ai_model": "openclaw-ai"},
+            json={"display_name": name},
             timeout=15,
         )
         if resp.status_code != 200:
@@ -732,17 +732,44 @@ def cmd_register(args, cfg):
         token = data.get("skill_token", "")
         username = data.get("username", "")
         player_id = data.get("player_id", "")
+        ai_model = data.get("ai_model", "")
+        model_url = data.get("model_url", "")
 
-        # Auto-save token to config
+        # Auto-save token + model info to config
         cfg["skill_token"] = token
+        if ai_model:
+            cfg["ai_model"] = ai_model
         save_config(cfg)
 
         print(f"REGISTER_OK")
         print(f"  Player ID: {player_id}")
         print(f"  Username: {username}")
         print(f"  Display Name: {name}")
+        print(f"  Assigned Engine: {ai_model}")
         print(f"  Token: {token}")
         print(f"  Token saved to {CONFIG_FILE}")
+
+        # Download CNN model
+        if model_url:
+            print(f"  Downloading CNN model ({ai_model})...")
+            model_dir = Path.home() / "gomoku-checkpoints" / "custom"
+            model_dir.mkdir(parents=True, exist_ok=True)
+            model_path = model_dir / "cnn_final.pt"
+            try:
+                mr = requests.get(model_url, timeout=60, stream=True)
+                mr.raise_for_status()
+                with open(model_path, "wb") as f:
+                    for chunk in mr.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                size_mb = model_path.stat().st_size / 1024 / 1024
+                print(f"  Model downloaded: {model_path} ({size_mb:.1f}MB)")
+                cfg["engine_model"] = "custom"
+                cfg["engine_level"] = 6
+                save_config(cfg)
+            except Exception as e:
+                print(f"  Model download failed: {e}")
+                print(f"  You can download later: {model_url}")
+
         print(f"")
         print(f"You can now start playing:")
         print(f"  /gomoku match")
@@ -1233,6 +1260,68 @@ def cmd_ai_hint(args, cfg):
     print(f"MOVE={coord}")
 
 
+# ── CNN Engine / Move Computation ─────────────────────────────────────────────
+
+_cnn_engine = None
+_cnn_engine_tried = False
+
+
+def _get_cnn_engine(cfg: dict):
+    """Try to load CNN engine. Returns engine or None."""
+    global _cnn_engine, _cnn_engine_tried
+    if _cnn_engine_tried:
+        return _cnn_engine
+    _cnn_engine_tried = True
+    model_path = Path.home() / "gomoku-checkpoints" / "custom" / "cnn_final.pt"
+    if not model_path.exists():
+        return None
+    try:
+        from gomoku.engines import create_engine
+        _cnn_engine = create_engine("cnn", model_path=str(model_path), temperature=0.2)
+        return _cnn_engine
+    except Exception:
+        return None
+
+
+def _compute_move(moves: list, cfg: dict) -> tuple:
+    """Compute best move using CNN engine if available, else simple heuristic."""
+    # Try CNN engine
+    engine = _get_cnn_engine(cfg)
+    if engine:
+        try:
+            from gomoku.game import Board
+            board = Board()
+            for m in moves:
+                board.place(m["row"], m["col"])
+            row, col = engine.get_move(board)
+            coord = pos_to_coord(row, col)
+            print(f"[play] → CNN engine move {coord}", flush=True)
+            return (row, col)
+        except Exception as e:
+            print(f"[play] CNN engine error: {e}, falling back to heuristic", flush=True)
+
+    # Fallback: simple heuristic
+    import random as _rng
+    occupied = set()
+    for m in moves:
+        occupied.add((m["row"], m["col"]))
+    candidates = []
+    for r, c in occupied:
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < 15 and 0 <= nc < 15 and (nr, nc) not in occupied:
+                    candidates.append((nr, nc))
+    if not candidates:
+        candidates = [(7, 7)]
+    candidates = list(set(candidates))
+    candidates.sort(key=lambda p: abs(p[0] - 7) + abs(p[1] - 7))
+    pick = candidates[0] if len(candidates) <= 3 else _rng.choice(candidates[:5])
+    coord = pos_to_coord(pick[0], pick[1])
+    print(f"[play] → heuristic move {coord}", flush=True)
+    return pick
+
+
 # ── Auto-play loop ───────────────────────────────────────────────────────────
 
 def cmd_play(args, cfg):
@@ -1379,27 +1468,9 @@ def cmd_play(args, cfg):
                 PRACTICE_PID_FILE.unlink(missing_ok=True)
                 break
 
-            # Pick a move: center bias + adjacent to existing stones
-            import random as _rng
-            occupied = set()
-            for m in moves:
-                occupied.add((m["row"], m["col"]))
-            # Find legal moves near existing stones
-            candidates = []
-            for r, c in occupied:
-                for dr in range(-2, 3):
-                    for dc in range(-2, 3):
-                        nr, nc = r + dr, c + dc
-                        if 0 <= nr < 15 and 0 <= nc < 15 and (nr, nc) not in occupied:
-                            candidates.append((nr, nc))
-            if not candidates:
-                candidates = [(7, 7)]  # center
-            candidates = list(set(candidates))
-            # Prefer center-ish moves
-            candidates.sort(key=lambda p: abs(p[0]-7) + abs(p[1]-7))
-            pick = candidates[0] if len(candidates) <= 3 else _rng.choice(candidates[:5])
+            # Pick a move: CNN engine if available, else simple heuristic
+            pick = _compute_move(moves, cfg)
             coord = pos_to_coord(pick[0], pick[1])
-            print(f"[play] → submitting move {coord}", flush=True)
 
             # Submit move
             move_resp = requests.post(
